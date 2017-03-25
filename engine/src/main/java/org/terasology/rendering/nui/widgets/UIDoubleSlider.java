@@ -1,23 +1,23 @@
 /*
-* Copyright 2014 MovingBlocks
-*
-* Licensed under the Apache License, Version 2.0 (the "License");
-* you may not use this file except in compliance with the License.
-* You may obtain a copy of the License at
-*
-*  http://www.apache.org/licenses/LICENSE-2.0
-*
-* Unless required by applicable law or agreed to in writing, software
-* distributed under the License is distributed on an "AS IS" BASIS,
-* WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-* See the License for the specific language governing permissions and
-* limitations under the License.
-*/
+ * Copyright 2016 MovingBlocks
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 package org.terasology.rendering.nui.widgets;
 
 import org.terasology.input.MouseInput;
-import org.terasology.math.geom.Rect2i;
 import org.terasology.math.TeraMath;
+import org.terasology.math.geom.Rect2i;
 import org.terasology.math.geom.Vector2i;
 import org.terasology.rendering.nui.BaseInteractionListener;
 import org.terasology.rendering.nui.Canvas;
@@ -32,12 +32,27 @@ import org.terasology.rendering.nui.events.NUIMouseDragEvent;
 import org.terasology.rendering.nui.events.NUIMouseReleaseEvent;
 
 /**
+ * A simple slider bar with two handles
  */
 public class UIDoubleSlider extends CoreWidget {
     public static final String SLIDER_PART = "slider";
     public static final String TICKER_LEFT_PART = "tickerLeft";
     public static final String TICKER_RIGHT_PART = "tickerRight";
-
+    @LayoutConfig
+    private Binding<Float> minimum = new DefaultBinding<>(0.0f);
+    @LayoutConfig
+    private Binding<Float> range = new DefaultBinding<>(1.0f);
+    @LayoutConfig
+    private Binding<Float> increment = new DefaultBinding<>(0.1f);
+    @LayoutConfig
+    private int precision = 1;
+    @LayoutConfig
+    private Binding<Float> valueLeft = new DefaultBinding<>(0.3f);
+    @LayoutConfig
+    private Binding<Float> valueRight = new DefaultBinding<>(0.7f);
+    private int sliderWidth;
+    private String formatString = "0.0";
+    private boolean active;
     private InteractionListener tickerListenerLeft = new BaseInteractionListener() {
         private Vector2i offset = new Vector2i();
 
@@ -70,7 +85,6 @@ public class UIDoubleSlider extends CoreWidget {
             }
         }
     };
-
     private InteractionListener tickerListenerRight = new BaseInteractionListener() {
         private Vector2i offset = new Vector2i();
 
@@ -104,25 +118,6 @@ public class UIDoubleSlider extends CoreWidget {
         }
     };
 
-    @LayoutConfig
-    private Binding<Float> minimum = new DefaultBinding<>(0.0f);
-
-    @LayoutConfig
-    private Binding<Float> range = new DefaultBinding<>(1.0f);
-
-    @LayoutConfig
-    private Binding<Float> increment = new DefaultBinding<>(0.1f);
-
-    @LayoutConfig
-    private int precision = 1;
-
-    private Binding<Float> valueLeft = new DefaultBinding<>(0.3f);
-    private Binding<Float> valueRight = new DefaultBinding<>(0.7f);
-
-    private int sliderWidth;
-    private String formatString = "0.0";
-    private boolean active;
-
     public UIDoubleSlider() {
     }
 
@@ -154,7 +149,9 @@ public class UIDoubleSlider extends CoreWidget {
         try (SubRegion ignored = canvas.subRegion(tickerRegion, false)) {
             canvas.drawBackground();
             canvas.drawText(display);
-            canvas.addInteractionRegion(tickerListener);
+            if (isEnabled()) {
+                canvas.addInteractionRegion(tickerListener);
+            }
         }
     }
 
@@ -203,6 +200,10 @@ public class UIDoubleSlider extends CoreWidget {
 
     @Override
     public String getMode() {
+        if (!isEnabled()) {
+            return DISABLED_MODE;
+        }
+
         if (active) {
             return ACTIVE_MODE;
         } else if (tickerListenerLeft.isMouseOver() || tickerListenerRight.isMouseOver()) {
@@ -215,10 +216,16 @@ public class UIDoubleSlider extends CoreWidget {
         this.minimum = binding;
     }
 
+    /**
+     * @return A Float indicating the minimum value.
+     */
     public float getMinimum() {
         return minimum.get();
     }
 
+    /**
+     * @param min A Float indicating the minimum value settable.
+     */
     public void setMinimum(float min) {
         this.minimum.set(min);
         generateFormatString();
@@ -228,10 +235,16 @@ public class UIDoubleSlider extends CoreWidget {
         this.range = binding;
     }
 
+    /**
+     * @return A Float indicating the range of values.
+     */
     public float getRange() {
         return range.get();
     }
 
+    /**
+     * @param val A Float specifying the range of values.
+     */
     public void setRange(float val) {
         range.set(val);
         generateFormatString();
@@ -241,10 +254,16 @@ public class UIDoubleSlider extends CoreWidget {
         increment = binding;
     }
 
+    /**
+     * @return A Float indicating the smallest increment.
+     */
     public float getIncrement() {
         return increment.get();
     }
 
+    /**
+     * @param val A Float specifying the smallest increment.
+     */
     public void setIncrement(float val) {
         increment.set(val);
     }
@@ -257,14 +276,16 @@ public class UIDoubleSlider extends CoreWidget {
         valueRight = binding;
     }
 
+    /**
+     * @return A Float containing the value of the left handle.
+     */
     public float getValueLeft() {
         return valueLeft.get();
     }
 
-    public float getValueRight() {
-        return valueRight.get();
-    }
-
+    /**
+     * @param val The new value of the left handle
+     */
     public void setValueLeft(float val) {
         valueLeft.set(val);
 
@@ -273,6 +294,16 @@ public class UIDoubleSlider extends CoreWidget {
         }
     }
 
+    /**
+     * @return A Float containing the value of the right handle.
+     */
+    public float getValueRight() {
+        return valueRight.get();
+    }
+
+    /**
+     * @param val The new value of the right handle.
+     */
     public void setValueRight(float val) {
         valueRight.set(val);
 
@@ -281,10 +312,16 @@ public class UIDoubleSlider extends CoreWidget {
         }
     }
 
+    /**
+     * @return The number of decimal points displayed.
+     */
     public int getPrecision() {
         return precision;
     }
 
+    /**
+     * @param precision The number of decimal points to display.
+     */
     public void setPrecision(int precision) {
         this.precision = precision;
         generateFormatString();

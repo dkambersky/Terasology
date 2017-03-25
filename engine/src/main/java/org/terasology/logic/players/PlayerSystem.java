@@ -1,5 +1,5 @@
 /*
- * Copyright 2013 MovingBlocks
+ * Copyright 2016 MovingBlocks
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,20 +19,14 @@ package org.terasology.logic.players;
 import com.google.common.collect.Lists;
 import org.terasology.entitySystem.entity.EntityManager;
 import org.terasology.entitySystem.entity.EntityRef;
-import org.terasology.entitySystem.entity.lifecycleEvents.BeforeDeactivateComponent;
-import org.terasology.entitySystem.entity.lifecycleEvents.OnActivatedComponent;
 import org.terasology.entitySystem.event.ReceiveEvent;
 import org.terasology.entitySystem.systems.BaseComponentSystem;
 import org.terasology.entitySystem.systems.RegisterMode;
 import org.terasology.entitySystem.systems.RegisterSystem;
 import org.terasology.entitySystem.systems.UpdateSubscriberSystem;
 import org.terasology.logic.characters.CharacterComponent;
-import org.terasology.logic.console.commandSystem.annotations.Command;
-import org.terasology.logic.console.commandSystem.annotations.CommandParam;
-import org.terasology.logic.console.commandSystem.annotations.Sender;
 import org.terasology.logic.location.Location;
 import org.terasology.logic.location.LocationComponent;
-import org.terasology.logic.permission.PermissionManager;
 import org.terasology.logic.players.event.OnPlayerSpawnedEvent;
 import org.terasology.logic.players.event.RespawnRequestEvent;
 import org.terasology.math.geom.Quat4f;
@@ -45,16 +39,14 @@ import org.terasology.network.events.ConnectedEvent;
 import org.terasology.network.events.DisconnectedEvent;
 import org.terasology.persistence.PlayerStore;
 import org.terasology.registry.In;
-import org.terasology.rendering.world.WorldRenderer;
 import org.terasology.rendering.world.viewDistance.ViewDistance;
 import org.terasology.world.WorldProvider;
+import org.terasology.world.chunks.ChunkProvider;
 import org.terasology.world.generator.WorldGenerator;
 
 import java.util.Iterator;
 import java.util.List;
 
-/**
- */
 @RegisterSystem(RegisterMode.AUTHORITY)
 public class PlayerSystem extends BaseComponentSystem implements UpdateSubscriberSystem {
 
@@ -62,13 +54,13 @@ public class PlayerSystem extends BaseComponentSystem implements UpdateSubscribe
     private EntityManager entityManager;
 
     @In
-    private WorldRenderer worldRenderer;
-
-    @In
     private WorldGenerator worldGenerator;
 
     @In
     private WorldProvider worldProvider;
+
+    @In
+    private ChunkProvider chunkProvider;
 
     @In
     private NetworkSystem networkSystem;
@@ -165,12 +157,12 @@ public class PlayerSystem extends BaseComponentSystem implements UpdateSubscribe
         //RelevanceRegionComponent relevanceRegion = new RelevanceRegionComponent();
         //relevanceRegion.distance = chunkDistance;
         //entity.saveComponent(relevanceRegion);
-        worldRenderer.getChunkProvider().updateRelevanceEntity(entity, chunkDistance);
+        chunkProvider.updateRelevanceEntity(entity, chunkDistance);
     }
 
     private void removeRelevanceEntity(EntityRef entity) {
         //entity.removeComponent(RelevanceRegionComponent.class);
-        worldRenderer.getChunkProvider().removeRelevanceEntity(entity);
+        chunkProvider.removeRelevanceEntity(entity);
     }
 
 
@@ -178,7 +170,7 @@ public class PlayerSystem extends BaseComponentSystem implements UpdateSubscribe
         //RelevanceRegionComponent relevanceRegion = new RelevanceRegionComponent();
         //relevanceRegion.distance = chunkDistance;
         //entity.addComponent(relevanceRegion);
-        worldRenderer.getChunkProvider().addRelevanceEntity(entity, chunkDistance, owner);
+        chunkProvider.addRelevanceEntity(entity, chunkDistance, owner);
     }
 
     @ReceiveEvent(components = ClientComponent.class)
@@ -203,25 +195,6 @@ public class PlayerSystem extends BaseComponentSystem implements UpdateSubscribe
         }
     }
 
-    @Command(value = "teleport", shortDescription = "Teleports you to a location", runOnServer = true,
-            requiredPermission = PermissionManager.CHEAT_PERMISSION)
-    public String teleportCommand(@Sender EntityRef sender, @CommandParam("x") float x, @CommandParam("y") float y, @CommandParam("z") float z) {
-        ClientComponent clientComp = sender.getComponent(ClientComponent.class);
-        LocationComponent location = clientComp.character.getComponent(LocationComponent.class);
-        if (location != null) {
-            // deactivate the character to reset the CharacterPredictionSystem,
-            // which would overwrite the character location
-            clientComp.character.send(BeforeDeactivateComponent.newInstance());
-
-            location.setWorldPosition(new Vector3f(x, y, z));
-            clientComp.character.saveComponent(location);
-
-            // re-active the character
-            clientComp.character.send(OnActivatedComponent.newInstance());
-        }
-        return "Teleported to " + x + " " + y + " " + z;
-    }
-
     private void spawnPlayer(EntityRef clientEntity) {
 
         ClientComponent client = clientEntity.getComponent(ClientComponent.class);
@@ -243,12 +216,12 @@ public class PlayerSystem extends BaseComponentSystem implements UpdateSubscribe
         public PlayerStore playerStore;
         public Vector3f position;
 
-        public SpawningClientInfo(EntityRef client, Vector3f position) {
+         SpawningClientInfo(EntityRef client, Vector3f position) {
             this.clientEntity = client;
             this.position = position;
         }
 
-        public SpawningClientInfo(EntityRef client, Vector3f position, PlayerStore playerStore) {
+         SpawningClientInfo(EntityRef client, Vector3f position, PlayerStore playerStore) {
             this(client, position);
             this.playerStore = playerStore;
         }

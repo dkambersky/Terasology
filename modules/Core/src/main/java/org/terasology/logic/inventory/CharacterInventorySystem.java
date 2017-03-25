@@ -1,5 +1,5 @@
 /*
- * Copyright 2015 MovingBlocks
+ * Copyright 2016 MovingBlocks
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,6 +16,10 @@
 
 package org.terasology.logic.inventory;
 
+import org.terasology.logic.characters.events.DeathEvent;
+import org.terasology.physics.HitResult;
+import org.terasology.physics.Physics;
+import org.terasology.physics.StandardCollisionGroup;
 import org.terasology.utilities.Assets;
 import org.terasology.audio.events.PlaySoundForOwnerEvent;
 import org.terasology.engine.Time;
@@ -68,6 +72,9 @@ public class CharacterInventorySystem extends BaseComponentSystem {
     @In
     private EntityManager entityManager;
 
+    @In
+    private Physics physics;
+
     private long lastInteraction;
     private long lastTimeThrowInteraction;
 
@@ -104,17 +111,25 @@ public class CharacterInventorySystem extends BaseComponentSystem {
             return;
         }
 
-        // remove a single item from the stack
+        int count = event.getCount();
+        // remove 'count' items from the stack
         EntityRef pickupItem = event.getItem();
         EntityRef owner = pickupItem.getOwner();
         if (owner.hasComponent(InventoryComponent.class)) {
-            final EntityRef removedItem = inventoryManager.removeItem(owner, EntityRef.NULL, pickupItem, false, 1);
+            final EntityRef removedItem = inventoryManager.removeItem(owner, EntityRef.NULL, pickupItem, false, count);
             if (removedItem != null) {
                 pickupItem = removedItem;
             }
         }
 
         pickupItem.send(new DropItemEvent(event.getNewPosition()));
+
+        if (pickupItem.hasComponent(PickupComponent.class)) {
+            PickupComponent pickupComponent = pickupItem.getComponent(PickupComponent.class);
+            pickupComponent.timeDropped = time.getGameTimeInMs();
+            pickupItem.saveComponent(pickupComponent);
+        }
+
         pickupItem.send(new ImpulseEvent(event.getImpulse()));
     }
 
@@ -169,10 +184,15 @@ public class CharacterInventorySystem extends BaseComponentSystem {
             Vector3f position = localPlayer.getViewPosition();
             Vector3f direction = localPlayer.getViewDirection();
 
-            Vector3f newPosition = new Vector3f(position.x + direction.x * 1.5f,
-                    position.y + direction.y * 1.5f,
-                    position.z + direction.z * 1.5f
-            );
+            Vector3f maxAllowedDistanceInDirection = direction.mul(1.5f);
+            HitResult hitResult = physics.rayTrace(position, direction, 1.5f, StandardCollisionGroup.CHARACTER, StandardCollisionGroup.WORLD);
+            if (hitResult.isHit()) {
+                Vector3f possibleNewPosition = hitResult.getHitPoint();
+                maxAllowedDistanceInDirection = possibleNewPosition.sub(position);
+            }
+
+            Vector3f newPosition = position;
+            newPosition.add(maxAllowedDistanceInDirection.mul(0.9f));
 
             //send DropItemRequest
             Vector3f impulseVector = new Vector3f(direction);
@@ -215,6 +235,11 @@ public class CharacterInventorySystem extends BaseComponentSystem {
                 event.setHandled(true);
             }
         }
+    }
+
+    @ReceiveEvent(netFilter = RegisterMode.CLIENT)
+    public void onPlayerDeath(DeathEvent event, EntityRef entity) {
+        resetDropMark();
     }
 
 }

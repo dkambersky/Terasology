@@ -20,6 +20,8 @@ package org.terasology.logic.characters;
  */
 public enum MovementMode {
     WALKING(1f, 8f, true, true, true, 3f, false),
+    CROUCHING(1f, 8f, true, true, true, 1.5f, false),
+    PRONING(1f, 8f, true, true, true, 3f, false),
     CLIMBING(0f, 8f, true, true, true, 3f, false),
     SWIMMING(0.05f, 1.5f, true, false, true, 2f, true),
     DIVING(0f, 2f, true, false, true, 2f, true),
@@ -35,7 +37,7 @@ public enum MovementMode {
     public float maxSpeed;
     public boolean applyInertiaToVertical;
 
-    private MovementMode(float scaleGravity, float scaleInertia, boolean useCollision, boolean canBeGrounded,
+    MovementMode(float scaleGravity, float scaleInertia, boolean useCollision, boolean canBeGrounded,
                          boolean respondToEnvironment, float maxSpeed, boolean applyInertiaToVertical) {
         this.scaleGravity = scaleGravity;
         this.scaleInertia = scaleInertia;

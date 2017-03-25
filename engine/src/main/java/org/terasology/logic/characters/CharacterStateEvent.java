@@ -1,5 +1,5 @@
 /*
- * Copyright 2013 MovingBlocks
+ * Copyright 2016 MovingBlocks
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -22,8 +22,6 @@ import org.terasology.math.geom.Vector3i;
 import org.terasology.network.BroadcastEvent;
 import org.terasology.network.NetworkEvent;
 
-/**
- */
 @BroadcastEvent
 public class CharacterStateEvent extends NetworkEvent {
     private long time;
@@ -100,6 +98,10 @@ public class CharacterStateEvent extends NetworkEvent {
         return velocity;
     }
 
+    public void setVelocity(Vector3f velocity) {
+        this.velocity.set(velocity);
+    }
+
     public void setTime(long time) {
         this.time = time;
     }
@@ -162,6 +164,7 @@ public class CharacterStateEvent extends NetworkEvent {
         this.footstepDelta = delta;
     }
 
-
-
+    public void setPosition(Vector3f position) {
+        this.position = position;
+    }
 }

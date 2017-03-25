@@ -1,5 +1,5 @@
 /*
- * Copyright 2014 MovingBlocks
+ * Copyright 2016 MovingBlocks
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -45,9 +45,9 @@ import java.util.List;
 import java.util.PriorityQueue;
 
 /**
- * Created by manu on 24.12.2014.
+ * TODO: write javadoc unless this class gets slated for removal, which might be.
  */
-public class RenderableWorldImpl implements RenderableWorld {
+class RenderableWorldImpl implements RenderableWorld {
 
     private static final int MAX_ANIMATED_CHUNKS = 64;
     private static final int MAX_BILLBOARD_CHUNKS = 64;
@@ -63,9 +63,9 @@ public class RenderableWorldImpl implements RenderableWorld {
 
     private ChunkTessellator chunkTessellator;
     private final ChunkMeshUpdateManager chunkMeshUpdateManager;
-    // TODO: Review usage of ChunkImpl throughout WorldRenderer
     private final List<RenderableChunk> chunksInProximityOfCamera = Lists.newArrayListWithCapacity(MAX_LOADABLE_CHUNKS);
     private Region3i renderableRegion = Region3i.EMPTY;
+    private ViewDistance currentViewDistance;
     private RenderQueuesHelper renderQueues;
 
     private Camera playerCamera;
@@ -78,14 +78,18 @@ public class RenderableWorldImpl implements RenderableWorld {
     private int statVisibleChunks;
     private int statIgnoredPhases;
 
-    public RenderableWorldImpl(WorldProvider worldProvider, ChunkProvider chunkProvider, GLBufferPool bufferPool, Camera playerCamera, Camera shadowMapCamera) {
+
+    RenderableWorldImpl(WorldProvider worldProvider,
+                               ChunkProvider chunkProvider,
+                               GLBufferPool bufferPool,
+                               Camera playerCamera) {
+
         this.worldProvider = worldProvider;
         this.chunkProvider = chunkProvider;
         chunkTessellator = new ChunkTessellator(bufferPool);
         chunkMeshUpdateManager = new ChunkMeshUpdateManager(chunkTessellator, worldProvider);
 
         this.playerCamera = playerCamera;
-        this.shadowMapCamera = shadowMapCamera;
 
         renderQueues = new RenderQueuesHelper(new PriorityQueue<>(MAX_LOADABLE_CHUNKS, new ChunkFrontToBackComparator()),
                 new PriorityQueue<>(MAX_LOADABLE_CHUNKS, new ChunkFrontToBackComparator()),
@@ -220,13 +224,19 @@ public class RenderableWorldImpl implements RenderableWorld {
             renderableRegion = newRenderableRegion;
             return true;
         }
+
         return false;
     }
 
     @Override
-    public boolean updateChunksInProximity(ViewDistance viewDistance) {
-        logger.info("New Viewing Distance: {}", viewDistance);
-        return updateChunksInProximity(calculateRenderableRegion(viewDistance));
+    public boolean updateChunksInProximity(ViewDistance newViewDistance) {
+        if (newViewDistance != currentViewDistance) {
+            logger.info("New Viewing Distance: {}", newViewDistance);
+            currentViewDistance = newViewDistance;
+            return updateChunksInProximity(calculateRenderableRegion(newViewDistance));
+        } else {
+            return false;
+        }
     }
 
     private Region3i calculateRenderableRegion(ViewDistance newViewDistance) {
@@ -287,16 +297,13 @@ public class RenderableWorldImpl implements RenderableWorld {
         int processedChunks = 0;
         int chunkCounter = 0;
         ChunkMesh mesh;
-        RenderableChunk chunk;
         boolean isDynamicShadows = renderingConfig.isDynamicShadows();
-        Iterator<RenderableChunk> nearbyChunks = chunksInProximityOfCamera.iterator();
-        while (nearbyChunks.hasNext()) {
-            chunk = nearbyChunks.next();
 
+        for (RenderableChunk chunk : chunksInProximityOfCamera) {
             if (isChunkValidForRender(chunk)) {
                 mesh = chunk.getMesh();
 
-                if (isDynamicShadows && isFirstRenderingStageForCurrentFrame && chunkCounter < maxChunksForShadows && isChunkVisibleLight(chunk)) {
+                if (isDynamicShadows && isFirstRenderingStageForCurrentFrame && chunkCounter < maxChunksForShadows && isChunkVisibleFromMainLight(chunk)) {
                     if (triangleCount(mesh, ChunkMesh.RenderPhase.OPAQUE) > 0) {
                         renderQueues.chunksOpaqueShadow.add(chunk);
                     } else {
@@ -337,12 +344,10 @@ public class RenderableWorldImpl implements RenderableWorld {
                 }
 
                 // Process all chunks in the area, not only the visible ones
-                if (isFirstRenderingStageForCurrentFrame) {
-                    if ((chunk.isDirty() || !chunk.hasMesh())) {
-                        statDirtyChunks++;
-                        chunkMeshUpdateManager.queueChunkUpdate(chunk);
-                        processedChunks++;
-                    }
+                if (isFirstRenderingStageForCurrentFrame && (chunk.isDirty() || !chunk.hasMesh())) {
+                    statDirtyChunks++;
+                    chunkMeshUpdateManager.queueChunkUpdate(chunk);
+                    processedChunks++;
                 }
             }
             chunkCounter++;
@@ -365,23 +370,23 @@ public class RenderableWorldImpl implements RenderableWorld {
         chunkMeshUpdateManager.shutdown();
     }
 
-    public boolean isChunkValidForRender(RenderableChunk chunk) {
+    private boolean isChunkValidForRender(RenderableChunk chunk) {
         return chunk.isReady() && chunk.areAdjacentChunksReady();
     }
 
-    public boolean isChunkVisibleLight(RenderableChunk chunk) {
-        return isChunkVisible(shadowMapCamera, chunk);
+    private boolean isChunkVisibleFromMainLight(RenderableChunk chunk) {
+        return isChunkVisible(shadowMapCamera, chunk); //TODO: find an elegant way
     }
 
-    public boolean isChunkVisible(RenderableChunk chunk) {
+    private boolean isChunkVisible(RenderableChunk chunk) {
         return isChunkVisible(playerCamera, chunk);
     }
 
-    public boolean isChunkVisible(Camera camera, RenderableChunk chunk) {
+    private boolean isChunkVisible(Camera camera, RenderableChunk chunk) {
         return camera.hasInSight(chunk.getAABB());
     }
 
-    public boolean isChunkVisibleReflection(RenderableChunk chunk) {
+    private boolean isChunkVisibleReflection(RenderableChunk chunk) {
         return playerCamera.getViewFrustumReflected().intersects(chunk.getAABB());
     }
 
@@ -396,18 +401,23 @@ public class RenderableWorldImpl implements RenderableWorld {
     }
 
     @Override
+    public void setShadowMapCamera(Camera camera) {
+        this.shadowMapCamera = camera;
+    }
+
+    @Override
     public String getMetrics() {
-        StringBuilder builder = new StringBuilder();
-        builder.append("Dirty Chunks: ");
-        builder.append(statDirtyChunks);
-        builder.append("\n");
-        builder.append("Ignored Phases: ");
-        builder.append(statIgnoredPhases);
-        builder.append("\n");
-        builder.append("Visible Chunks: ");
-        builder.append(statVisibleChunks);
-        builder.append("\n");
-        return builder.toString();
+        String stringToReturn = "";
+        stringToReturn += "Dirty Chunks: ";
+        stringToReturn += statDirtyChunks;
+        stringToReturn += "\n";
+        stringToReturn += "Ignored Phases: ";
+        stringToReturn += statIgnoredPhases;
+        stringToReturn += "\n";
+        stringToReturn += "Visible Chunks: ";
+        stringToReturn += statVisibleChunks;
+        stringToReturn += "\n";
+        return stringToReturn;
     }
 
     private static float squaredDistanceToCamera(RenderableChunk chunk, Vector3f cameraPosition) {
@@ -438,13 +448,10 @@ public class RenderableWorldImpl implements RenderableWorld {
             double distance1 = squaredDistanceToCamera(chunk1, cameraPosition);
             double distance2 = squaredDistanceToCamera(chunk2, cameraPosition);
 
-            if (distance1 == distance2) {
-                return 0;
-            } else if (distance1 > distance2) {
-                return 1;
-            } else {
-                return -1;
-            }
+            // Using Double.compare as simple d1 < d2 comparison is flagged as problematic by Jenkins
+            // On the other hand Double.compare can return any positive/negative value apparently,
+            // hence the need for Math.signum().
+            return (int) Math.signum(Double.compare(distance1, distance2));
         }
     }
 

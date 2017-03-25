@@ -58,6 +58,16 @@ public final class CharacterMovementComponent implements Component {
     @Range(min = 0, max = 1)
     public float slopeFactor = 0.6f; // Cosine of the maximum slope traversable. 1 is no slope, 0 is any slope
 
+    // Acrobatics settings
+    @Replicate(FieldReplicateType.SERVER_TO_OWNER)
+    public int baseNumberOfJumpsMax = 1; // Base maximum number of jumps allowed starting from solid ground.
+
+    @Replicate(FieldReplicateType.SERVER_TO_OWNER)
+    public int numberOfJumpsMax = 1; // Maximum number of jumps allowed starting from solid ground.
+
+    @Replicate(FieldReplicateType.SERVER_TO_OWNER)
+    public int numberOfJumpsLeft = baseNumberOfJumpsMax; // Remaining number of jumps a player can perform.
+
     public float distanceBetweenFootsteps = 1f;
     public boolean faceMovementDirection;
 

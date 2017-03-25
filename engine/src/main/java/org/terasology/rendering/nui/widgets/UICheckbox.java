@@ -26,6 +26,7 @@ import org.terasology.rendering.nui.databinding.DefaultBinding;
 import org.terasology.rendering.nui.events.NUIMouseClickEvent;
 
 /**
+ * A check-box. Hovering is supported.
  */
 public class UICheckbox extends CoreWidget {
     public static final String HOVER_ACTIVE_MODE = "hover-active";
@@ -54,12 +55,16 @@ public class UICheckbox extends CoreWidget {
 
     @Override
     public void onDraw(Canvas canvas) {
-        canvas.addInteractionRegion(interactionListener);
+        if (isEnabled()) {
+            canvas.addInteractionRegion(interactionListener);
+        }
     }
 
     @Override
     public String getMode() {
-        if (interactionListener.isMouseOver()) {
+        if (!isEnabled()) {
+            return DISABLED_MODE;
+        } else if (interactionListener.isMouseOver()) {
             if (active.get()) {
                 return HOVER_ACTIVE_MODE;
             }
@@ -70,13 +75,20 @@ public class UICheckbox extends CoreWidget {
         return DEFAULT_MODE;
     }
 
+    /**
+     * @return A boolean indicating the status of the checkbox
+     */
     public boolean isChecked() {
         return active.get();
     }
 
+    /**
+     * @param checked A boolean setting the ticked state of the checkbox
+     */
     public void setChecked(boolean checked) {
         active.set(checked);
     }
+
 
     public void bindChecked(Binding<Boolean> binding) {
         this.active = binding;

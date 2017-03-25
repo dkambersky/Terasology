@@ -1,5 +1,5 @@
 /*
- * Copyright 2015 MovingBlocks
+ * Copyright 2016 MovingBlocks
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -23,7 +23,6 @@ import org.terasology.network.ServerEvent;
 
 /**
  * A request for a player to drop an item. Is replicated onto the server
- *
  */
 @ServerEvent(lagCompensate = true)
 public class DropItemRequest implements Event {
@@ -32,15 +31,21 @@ public class DropItemRequest implements Event {
     private EntityRef inventory = EntityRef.NULL;
     private Vector3f impulse;
     private Vector3f newPosition;
+    private int count;
 
     protected DropItemRequest() {
     }
 
-    public DropItemRequest(EntityRef usedItem, EntityRef inventoryEntity, Vector3f impulse, Vector3f newPosition) {
+    public DropItemRequest(EntityRef usedItem, EntityRef inventoryEntity, Vector3f impulse, Vector3f newPosition, int count) {
         this.item = usedItem;
         this.inventory = inventoryEntity;
         this.impulse = impulse;
         this.newPosition = newPosition;
+        this.count = count;
+    }
+
+    public DropItemRequest(EntityRef usedItem, EntityRef inventoryEntity, Vector3f impulse, Vector3f newPosition) {
+        this(usedItem, inventoryEntity, impulse, newPosition, 1);
     }
 
     public EntityRef getItem() {
@@ -57,5 +62,9 @@ public class DropItemRequest implements Event {
 
     public Vector3f getImpulse() {
         return impulse;
+    }
+
+    public int getCount() {
+        return count;
     }
 }

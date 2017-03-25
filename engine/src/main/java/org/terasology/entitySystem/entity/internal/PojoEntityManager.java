@@ -380,16 +380,29 @@ public class PojoEntityManager implements EngineEntityManager {
         return EntityRef.NULL;
     }
 
+    /**
+     * Creates the entity without sending any events. The entity life cycle subscriber will however be informed.
+     */
     @Override
     public EntityRef createEntityWithoutLifecycleEvents(Iterable<Component> components) {
-        return createEntity(components);
+        EntityRef entity = createEntity(components);
+        for (Component component: components) {
+            notifyComponentAdded(entity, component.getClass());
+        }
+        return entity;
     }
 
+    /**
+     * Creates the entity without sending any events. The entity life cycle subscriber will however be informed.
+     */
     @Override
     public EntityRef createEntityWithoutLifecycleEvents(String prefabName) {
         return createEntityWithoutLifecycleEvents(getPrefabManager().getPrefab(prefabName));
     }
 
+    /**
+     * Creates the entity without sending any events. The entity life cycle subscriber will however be informed.
+     */
     @Override
     public EntityRef createEntityWithoutLifecycleEvents(Prefab prefab) {
         if (prefab != null) {
@@ -405,9 +418,13 @@ public class PojoEntityManager implements EngineEntityManager {
         }
     }
 
+    /**
+     * Destroys the entity without sending any events. The entity life cycle subscriber will however be informed.
+     */
     @Override
     public void destroyEntityWithoutEvents(EntityRef entity) {
         if (entity.isActive()) {
+            notifyComponentRemovalAndEntityDestruction(entity.getId(), entity);
             destroy(entity);
         }
     }
@@ -538,13 +555,17 @@ public class PojoEntityManager implements EngineEntityManager {
             eventSystem.send(ref, BeforeDeactivateComponent.newInstance());
             eventSystem.send(ref, BeforeRemoveComponent.newInstance());
         }
+        notifyComponentRemovalAndEntityDestruction(entityId, ref);
+        destroy(ref);
+    }
+
+    private void notifyComponentRemovalAndEntityDestruction(long entityId, EntityRef ref) {
         for (Component comp : store.iterateComponents(entityId)) {
             notifyComponentRemoved(ref, comp.getClass());
         }
         for (EntityDestroySubscriber destroySubscriber : destroySubscribers) {
             destroySubscriber.onEntityDestroyed(ref);
         }
-        destroy(ref);
     }
 
     private void destroy(EntityRef ref) {
@@ -736,7 +757,7 @@ public class PojoEntityManager implements EngineEntityManager {
         private EntityRef key;
         private T value;
 
-        public EntityEntry(EntityRef ref, T value) {
+        EntityEntry(EntityRef ref, T value) {
             this.key = ref;
             this.value = value;
         }
@@ -760,7 +781,7 @@ public class PojoEntityManager implements EngineEntityManager {
     private class EntityIterable implements Iterable<EntityRef> {
         private TLongList list;
 
-        public EntityIterable(TLongList list) {
+        EntityIterable(TLongList list) {
             this.list = list;
         }
 
@@ -773,7 +794,7 @@ public class PojoEntityManager implements EngineEntityManager {
     private class EntityIterator implements Iterator<EntityRef> {
         private TLongIterator idIterator;
 
-        public EntityIterator(TLongIterator idIterator) {
+        EntityIterator(TLongIterator idIterator) {
             this.idIterator = idIterator;
         }
 

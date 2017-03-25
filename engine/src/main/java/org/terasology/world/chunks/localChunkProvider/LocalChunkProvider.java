@@ -244,55 +244,44 @@ public class LocalChunkProvider implements GeneratingChunkProvider {
         ReadyChunkInfo readyChunkInfo = lightMerger.completeMerge();
         if (readyChunkInfo != null) {
             Chunk chunk = readyChunkInfo.getChunk();
-            chunk.writeLock();
-            try {
-                chunk.markReady();
-                updateAdjacentChunksReadyFieldOf(chunk);
-                updateAdjacentChunksReadyFieldOfAdjChunks(chunk);
+            chunk.markReady();
+            updateAdjacentChunksReadyFieldOf(chunk);
+            updateAdjacentChunksReadyFieldOfAdjChunks(chunk);
 
-                if (!readyChunkInfo.isNewChunk()) {
-                    PerformanceMonitor.startActivity("Generating Block Entities");
-                    generateBlockEntities(chunk);
-                    PerformanceMonitor.endActivity();
-                }
+            if (readyChunkInfo.isNewChunk()) {
+                PerformanceMonitor.startActivity("Generating queued Entities");
+                readyChunkInfo.getEntities().forEach(this::generateQueuedEntities);
+                PerformanceMonitor.endActivity();
+            }
 
-                if (readyChunkInfo.isNewChunk()) {
-                    PerformanceMonitor.startActivity("Generating queued Entities");
-                    readyChunkInfo.getEntities().forEach(this::generateQueuedEntities);
-                    PerformanceMonitor.endActivity();
-                }
+            if (readyChunkInfo.getChunkStore() != null) {
+                readyChunkInfo.getChunkStore().restoreEntities();
+            }
 
-                if (readyChunkInfo.getChunkStore() != null) {
-                    readyChunkInfo.getChunkStore().restoreEntities();
-                }
-
-                if (!readyChunkInfo.isNewChunk()) {
-                    PerformanceMonitor.startActivity("Sending OnAddedBlocks");
-                    readyChunkInfo.getBlockPositionMapppings().forEachEntry((id, positions) -> {
-                        if (positions.size() > 0) {
-                            blockManager.getBlock(id).getEntity().send(new OnAddedBlocks(positions, registry));
-                        }
-                        return true;
-                    });
-                    PerformanceMonitor.endActivity();
-                }
-
-                PerformanceMonitor.startActivity("Sending OnActivateBlocks");
+            if (!readyChunkInfo.isNewChunk()) {
+                PerformanceMonitor.startActivity("Sending OnAddedBlocks");
                 readyChunkInfo.getBlockPositionMapppings().forEachEntry((id, positions) -> {
                     if (positions.size() > 0) {
-                        blockManager.getBlock(id).getEntity().send(new OnActivatedBlocks(positions, registry));
+                        blockManager.getBlock(id).getEntity().send(new OnAddedBlocks(positions, registry));
                     }
                     return true;
                 });
                 PerformanceMonitor.endActivity();
-
-                if (readyChunkInfo.isNewChunk()) {
-                    worldEntity.send(new OnChunkGenerated(readyChunkInfo.getPos()));
-                }
-                worldEntity.send(new OnChunkLoaded(readyChunkInfo.getPos()));
-            } finally {
-                chunk.writeUnlock();
             }
+
+            PerformanceMonitor.startActivity("Sending OnActivateBlocks");
+            readyChunkInfo.getBlockPositionMapppings().forEachEntry((id, positions) -> {
+                if (positions.size() > 0) {
+                    blockManager.getBlock(id).getEntity().send(new OnActivatedBlocks(positions, registry));
+                }
+                return true;
+            });
+            PerformanceMonitor.endActivity();
+
+            if (readyChunkInfo.isNewChunk()) {
+                worldEntity.send(new OnChunkGenerated(readyChunkInfo.getPos()));
+            }
+            worldEntity.send(new OnChunkLoaded(readyChunkInfo.getPos()));
         }
     }
 
@@ -399,42 +388,33 @@ public class LocalChunkProvider implements GeneratingChunkProvider {
 
     private boolean unloadChunkInternal(Vector3i pos) {
         Chunk chunk = nearCache.get(pos);
-        if (chunk.isLocked()) {
-            return false;
-        }
-
-        chunk.writeLock();
-        try {
-            if (!chunk.isReady()) {
-                // Chunk hasn't been finished or changed, so just drop it.
-                Iterator<ReadyChunkInfo> infoIterator = sortedReadyChunks.iterator();
-                while (infoIterator.hasNext()) {
-                    ReadyChunkInfo next = infoIterator.next();
-                    if (next.getPos().equals(chunk.getPosition())) {
-                        infoIterator.remove();
-                        break;
-                    }
+        if (!chunk.isReady()) {
+            // Chunk hasn't been finished or changed, so just drop it.
+            Iterator<ReadyChunkInfo> infoIterator = sortedReadyChunks.iterator();
+            while (infoIterator.hasNext()) {
+                ReadyChunkInfo next = infoIterator.next();
+                if (next.getPos().equals(chunk.getPosition())) {
+                    infoIterator.remove();
+                    break;
                 }
-                return true;
             }
-            worldEntity.send(new BeforeChunkUnload(pos));
-            for (ChunkRelevanceRegion region : regions.values()) {
-                region.chunkUnloaded(pos);
-            }
-            storageManager.deactivateChunk(chunk);
-            chunk.dispose();
-            updateAdjacentChunksReadyFieldOfAdjChunks(chunk);
-
-            try {
-                unloadRequestTaskMaster.put(new ChunkUnloadRequest(chunk, this));
-            } catch (InterruptedException e) {
-                logger.error("Failed to enqueue unload request for {}", chunk.getPosition(), e);
-            }
-
             return true;
-        } finally {
-            chunk.writeUnlock();
         }
+        worldEntity.send(new BeforeChunkUnload(pos));
+        for (ChunkRelevanceRegion region : regions.values()) {
+            region.chunkUnloaded(pos);
+        }
+        storageManager.deactivateChunk(chunk);
+        chunk.dispose();
+        updateAdjacentChunksReadyFieldOfAdjChunks(chunk);
+
+        try {
+            unloadRequestTaskMaster.put(new ChunkUnloadRequest(chunk, this));
+        } catch (InterruptedException e) {
+            logger.error("Failed to enqueue unload request for {}", chunk.getPosition(), e);
+        }
+
+        return true;
     }
 
     private boolean areAdjacentChunksReady(Chunk chunk) {
@@ -495,16 +475,6 @@ public class LocalChunkProvider implements GeneratingChunkProvider {
         }
         lightMerger.beginMerge(chunk, readyChunkInfo);
         return true;
-    }
-
-    // Generates all non-temporary block entities
-    private void generateBlockEntities(Chunk chunk) {
-        ChunkBlockIterator i = chunk.getBlockIterator();
-        while (i.next()) {
-            if (i.getBlock().isKeepActive()) {
-                registry.getBlockEntityAt(i.getBlockPos());
-            }
-        }
     }
 
     void gatherBlockPositionsForDeactivate(Chunk chunk) {

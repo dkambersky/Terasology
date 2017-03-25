@@ -1,5 +1,5 @@
 /*
- * Copyright 2013 MovingBlocks
+ * Copyright 2017 MovingBlocks
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,6 +17,10 @@ package org.terasology.rendering.shader;
 
 import org.lwjgl.opengl.GL11;
 import org.lwjgl.opengl.GL13;
+import org.terasology.rendering.dag.nodes.ShadowMapNode;
+import org.terasology.rendering.opengl.FBO;
+import org.terasology.rendering.opengl.fbms.DisplayResolutionDependentFBOs;
+import org.terasology.rendering.opengl.fbms.ShadowMapResolutionDependentFBOs;
 import org.terasology.utilities.Assets;
 import org.terasology.config.Config;
 import org.terasology.math.geom.Vector3f;
@@ -24,49 +28,55 @@ import org.terasology.registry.CoreRegistry;
 import org.terasology.rendering.assets.material.Material;
 import org.terasology.rendering.assets.texture.Texture;
 import org.terasology.rendering.cameras.Camera;
-import org.terasology.rendering.opengl.FBO;
-import org.terasology.rendering.opengl.FrameBuffersManager;
 import org.terasology.rendering.world.WorldRenderer;
 
 import static org.lwjgl.opengl.GL11.glBindTexture;
+import static org.terasology.rendering.opengl.fbms.DisplayResolutionDependentFBOs.READONLY_GBUFFER;
 
 /**
  * Shader parameters for the LightBufferPass shader program.
  *
  */
 public class ShaderParametersLightGeometryPass extends ShaderParametersBase {
-
     @Override
     public void applyParameters(Material program) {
         super.applyParameters(program);
 
-        FrameBuffersManager buffersManager = CoreRegistry.get(FrameBuffersManager.class);
-        FBO sceneOpaque = buffersManager.getFBO("sceneOpaque");
+        // TODO: obtain once in the superclass and monitor from there?
+        // TODO: switch from CoreRegistry to Context.
+        ShadowMapResolutionDependentFBOs shadowMapResolutionDependentFBOs = CoreRegistry.get(ShadowMapResolutionDependentFBOs.class);
+        DisplayResolutionDependentFBOs displayResolutionDependentFBOs = CoreRegistry.get(DisplayResolutionDependentFBOs.class); // TODO: switch from CoreRegistry to Context.
+
+        FBO sceneOpaqueFbo = displayResolutionDependentFBOs.get(READONLY_GBUFFER);
 
         int texId = 0;
-        if (sceneOpaque != null) {
+        if (sceneOpaqueFbo != null) {
+            // TODO: move content of this block into the node
             GL13.glActiveTexture(GL13.GL_TEXTURE0 + texId);
-            sceneOpaque.bindDepthTexture();
+            sceneOpaqueFbo.bindDepthTexture();
             program.setInt("texSceneOpaqueDepth", texId++, true);
 
             GL13.glActiveTexture(GL13.GL_TEXTURE0 + texId);
-            sceneOpaque.bindNormalsTexture();
+            sceneOpaqueFbo.bindNormalsTexture();
             program.setInt("texSceneOpaqueNormals", texId++, true);
 
             GL13.glActiveTexture(GL13.GL_TEXTURE0 + texId);
-            sceneOpaque.bindLightBufferTexture();
+            sceneOpaqueFbo.bindLightBufferTexture();
             program.setInt("texSceneOpaqueLightBuffer", texId++, true);
         }
 
+        // TODO: monitor property by subscribing to it
         if (CoreRegistry.get(Config.class).getRendering().isDynamicShadows()) {
+            // TODO: move into node
             GL13.glActiveTexture(GL13.GL_TEXTURE0 + texId);
-            buffersManager.bindFboDepthTexture("sceneShadowMap");
+            shadowMapResolutionDependentFBOs.bindFboDepthTexture(ShadowMapNode.SHADOW_MAP);
             program.setInt("texSceneShadowMap", texId++, true);
 
-            Camera lightCamera = CoreRegistry.get(WorldRenderer.class).getLightCamera();
+            Camera lightCamera = CoreRegistry.get(WorldRenderer.class).getLightCamera(); // TODO: shadowMapNode.camera here
             Camera activeCamera = CoreRegistry.get(WorldRenderer.class).getActiveCamera();
 
             if (lightCamera != null && activeCamera != null) {
+                // TODO: move into material?
                 program.setMatrix4("lightViewProjMatrix", lightCamera.getViewProjectionMatrix(), true);
                 program.setMatrix4("invViewProjMatrix", activeCamera.getInverseViewProjectionMatrix(), true);
 
@@ -76,6 +86,7 @@ public class ShaderParametersLightGeometryPass extends ShaderParametersBase {
             }
 
             if (CoreRegistry.get(Config.class).getRendering().isCloudShadows()) {
+                // TODO: move into node - make sure to obtain texture only once and subscribe to it
                 Texture clouds = Assets.getTexture("engine:perlinNoiseTileable").get();
 
                 GL13.glActiveTexture(GL13.GL_TEXTURE0 + texId);

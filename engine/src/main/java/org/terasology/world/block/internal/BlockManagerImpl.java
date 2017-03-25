@@ -1,5 +1,5 @@
 /*
- * Copyright 2013 MovingBlocks
+ * Copyright 2016 MovingBlocks
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,8 +16,8 @@
 
 package org.terasology.world.block.internal;
 
-import com.google.api.client.repackaged.com.google.common.base.Preconditions;
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
@@ -48,8 +48,6 @@ import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.ReentrantLock;
 
-/**
- */
 public class BlockManagerImpl extends BlockManager {
 
     private static final Logger logger = LoggerFactory.getLogger(BlockManagerImpl.class);
@@ -72,6 +70,10 @@ public class BlockManagerImpl extends BlockManager {
 
     private boolean generateNewIds;
     private int nextId = 1;
+
+    // Cache this for performance reasons because a lookup by BlockURI happens the first time a block is set when getting the previous block.
+    // This causes performance problems eventually down the line when it then uses the ResourceUrn's hashcode to do a lookup into the block map.
+    private Block airBlock;
 
     public BlockManagerImpl(WorldAtlas atlas, AssetManager assetManager) {
         this(atlas, assetManager, true);
@@ -130,6 +132,13 @@ public class BlockManagerImpl extends BlockManager {
             return UNKNOWN_ID;
         }
         return (short) nextId++;
+    }
+
+    private Block getAirBlock() {
+        if (airBlock == null) {
+            airBlock = getBlock(AIR_ID);
+        }
+        return airBlock;
     }
 
     public void subscribe(BlockRegistrationListener listener) {
@@ -280,7 +289,7 @@ public class BlockManagerImpl extends BlockManager {
             return getBlock(new BlockUri(uri));
         } catch (BlockUriParseException e) {
             logger.error("Attempt to fetch block with illegal uri '{}'", uri);
-            return getBlock(AIR_ID);
+            return getAirBlock();
         }
     }
 
@@ -297,7 +306,7 @@ public class BlockManagerImpl extends BlockManager {
                 block = family.getBlockFor(uri);
             }
             if (block == null) {
-                return getBlock(AIR_ID);
+                return getAirBlock();
             }
         }
         return block;
@@ -307,7 +316,7 @@ public class BlockManagerImpl extends BlockManager {
     public Block getBlock(short id) {
         Block result = registeredBlockInfo.get().blocksById.get(id);
         if (result == null) {
-            return getBlock(AIR_ID);
+            return getAirBlock();
         }
         return result;
     }
@@ -340,14 +349,14 @@ public class BlockManagerImpl extends BlockManager {
         private final TShortObjectMap<Block> blocksById;
         private final TObjectShortMap<BlockUri> idByUri;
 
-        public RegisteredState() {
+        RegisteredState() {
             this.registeredFamilyByUri = Maps.newHashMap();
             this.blocksByUri = Maps.newHashMap();
             this.blocksById = new TShortObjectHashMap<>();
             this.idByUri = new TObjectShortHashMap<>();
         }
 
-        public RegisteredState(RegisteredState oldState) {
+        RegisteredState(RegisteredState oldState) {
             this.registeredFamilyByUri = Maps.newHashMap(oldState.registeredFamilyByUri);
             this.blocksByUri = Maps.newHashMap(oldState.blocksByUri);
             this.blocksById = new TShortObjectHashMap<>(oldState.blocksById);

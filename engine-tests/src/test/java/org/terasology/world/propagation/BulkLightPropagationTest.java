@@ -15,8 +15,6 @@
  */
 package org.terasology.world.propagation;
 
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
 import org.junit.Before;
 import org.junit.Test;
 import org.terasology.TerasologyTestingEnvironment;
@@ -111,7 +109,7 @@ public class BulkLightPropagationTest extends TerasologyTestingEnvironment {
     }
 
     @Test
-    public void addLightInVacuum() {
+    public void testAddLightInVacuum() {
         StubPropagatorWorldView worldView = new StubPropagatorWorldView(testingRegion, air);
         worldView.setBlockAt(Vector3i.zero(), fullLight);
 
@@ -129,7 +127,7 @@ public class BulkLightPropagationTest extends TerasologyTestingEnvironment {
     }
 
     @Test
-    public void removeLightInVacuum() {
+    public void testRemoveLightInVacuum() {
         StubPropagatorWorldView worldView = new StubPropagatorWorldView(testingRegion, air);
         worldView.setBlockAt(Vector3i.zero(), fullLight);
         BatchPropagator propagator = new StandardBatchPropagator(lightRules, worldView);
@@ -147,7 +145,7 @@ public class BulkLightPropagationTest extends TerasologyTestingEnvironment {
     }
 
     @Test
-    public void reduceLight() {
+    public void testReduceLight() {
         StubPropagatorWorldView worldView = new StubPropagatorWorldView(testingRegion, air);
         worldView.setBlockAt(Vector3i.zero(), fullLight);
         BatchPropagator propagator = new StandardBatchPropagator(lightRules, worldView);
@@ -166,7 +164,7 @@ public class BulkLightPropagationTest extends TerasologyTestingEnvironment {
     }
 
     @Test
-    public void addOverlappingLights() {
+    public void testAddOverlappingLights() {
         Vector3i lightPos = new Vector3i(5, 0, 0);
 
         StubPropagatorWorldView worldView = new StubPropagatorWorldView(ChunkConstants.CHUNK_REGION, air);
@@ -184,7 +182,7 @@ public class BulkLightPropagationTest extends TerasologyTestingEnvironment {
     }
 
     @Test
-    public void removeOverlappingLight() {
+    public void testRemoveOverlappingLight() {
         Vector3i lightPos = new Vector3i(5, 0, 0);
 
         StubPropagatorWorldView worldView = new StubPropagatorWorldView(testingRegion, air);
@@ -205,7 +203,7 @@ public class BulkLightPropagationTest extends TerasologyTestingEnvironment {
     }
 
     @Test
-    public void removeLightOverlappingAtEdge() {
+    public void testRemoveLightOverlappingAtEdge() {
         Vector3i lightPos = new Vector3i(2, 0, 0);
 
         StubPropagatorWorldView worldView = new StubPropagatorWorldView(testingRegion, air);
@@ -226,7 +224,7 @@ public class BulkLightPropagationTest extends TerasologyTestingEnvironment {
     }
 
     @Test
-    public void addLightInLight() {
+    public void testAddLightInLight() {
         StubPropagatorWorldView worldView = new StubPropagatorWorldView(testingRegion, air);
         worldView.setBlockAt(new Vector3i(2, 0, 0), mediumLight);
         BatchPropagator propagator = new StandardBatchPropagator(lightRules, worldView);
@@ -244,7 +242,7 @@ public class BulkLightPropagationTest extends TerasologyTestingEnvironment {
     }
 
     @Test
-    public void addAdjacentLights() {
+    public void testAddAdjacentLights() {
         StubPropagatorWorldView worldView = new StubPropagatorWorldView(testingRegion, air);
         worldView.setBlockAt(new Vector3i(1, 0, 0), mediumLight);
         worldView.setBlockAt(new Vector3i(0, 0, 0), mediumLight);
@@ -261,7 +259,7 @@ public class BulkLightPropagationTest extends TerasologyTestingEnvironment {
     }
 
     @Test
-    public void addWeakLightNextToStrongLight() {
+    public void testAddWeakLightNextToStrongLight() {
         StubPropagatorWorldView worldView = new StubPropagatorWorldView(testingRegion, air);
         worldView.setBlockAt(new Vector3i(0, 0, 0), fullLight);
         BatchPropagator propagator = new StandardBatchPropagator(lightRules, worldView);
@@ -273,7 +271,7 @@ public class BulkLightPropagationTest extends TerasologyTestingEnvironment {
     }
 
     @Test
-    public void removeAdjacentLights() {
+    public void testRemoveAdjacentLights() {
         StubPropagatorWorldView worldView = new StubPropagatorWorldView(testingRegion, air);
         worldView.setBlockAt(new Vector3i(1, 0, 0), mediumLight);
         worldView.setBlockAt(new Vector3i(0, 0, 0), mediumLight);
@@ -293,7 +291,7 @@ public class BulkLightPropagationTest extends TerasologyTestingEnvironment {
     }
 
     @Test
-    public void addSolidBlocksLight() {
+    public void testAddSolidBlocksLight() {
         StubPropagatorWorldView worldView = new StubPropagatorWorldView(ChunkConstants.CHUNK_REGION, air);
         worldView.setBlockAt(new Vector3i(0, 0, 0), mediumLight);
         BatchPropagator propagator = new StandardBatchPropagator(lightRules, worldView);
@@ -307,7 +305,7 @@ public class BulkLightPropagationTest extends TerasologyTestingEnvironment {
     }
 
     @Test
-    public void removeSolidAllowsLight() {
+    public void testRemoveSolidAllowsLight() {
         StubPropagatorWorldView worldView = new StubPropagatorWorldView(testingRegion, air);
         for (Vector3i pos : Region3i.createFromCenterExtents(new Vector3i(1, 0, 0), new Vector3i(0, 30, 30))) {
             worldView.setBlockAt(pos, solid);
@@ -326,7 +324,7 @@ public class BulkLightPropagationTest extends TerasologyTestingEnvironment {
     }
 
     @Test
-    public void removeSolidAndLight() {
+    public void testRemoveSolidAndLight() {
         StubPropagatorWorldView worldView = new StubPropagatorWorldView(testingRegion, air);
         for (Vector3i pos : Region3i.createFromCenterExtents(new Vector3i(1, 0, 0), new Vector3i(0, 30, 30))) {
             worldView.setBlockAt(pos, solid);

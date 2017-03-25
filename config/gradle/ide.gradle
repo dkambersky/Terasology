@@ -35,7 +35,7 @@ ext {
         def copyrightManager = iprNode.find { it.@name == 'CopyrightManager' }
         copyrightManager.@default = "TerasologyEngine"
         def copyright = copyrightManager.appendNode("copyright")
-        copyright.appendNode("option", [name : "notice", value : 'Copyright 2016 MovingBlocks\n\nLicensed under the Apache License, Version 2.0 (the "License");\nyou may not use this file except in compliance with the License.\nYou may obtain a copy of the License at\n\n     http://www.apache.org/licenses/LICENSE-2.0\n\nUnless required by applicable law or agreed to in writing, software\ndistributed under the License is distributed on an "AS IS" BASIS,\nWITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.\nSee the License for the specific language governing permissions and\nlimitations under the License.'])
+        copyright.appendNode("option", [name : "notice", value : 'Copyright 2017 MovingBlocks\n\nLicensed under the Apache License, Version 2.0 (the "License");\nyou may not use this file except in compliance with the License.\nYou may obtain a copy of the License at\n\n     http://www.apache.org/licenses/LICENSE-2.0\n\nUnless required by applicable law or agreed to in writing, software\ndistributed under the License is distributed on an "AS IS" BASIS,\nWITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.\nSee the License for the specific language governing permissions and\nlimitations under the License.'])
         copyright.appendNode("option", [name : "keyword", value : "Copyright"])
         copyright.appendNode("option", [name : "allowReplaceKeyword", value : ""])
         copyright.appendNode("option", [name : "myName", value : "TerasologyEngine"])
@@ -157,7 +157,38 @@ ext {
                 </pattern>
               </extension>
               <option name="MAIN_CLASS_NAME" value="org.terasology.engine.Terasology"/>
-              <option name="VM_PARAMETERS" value="-Xms256m -Xmx1024m"/>
+              <option name="VM_PARAMETERS" value="-Xms256m -Xmx1536m"/>
+              <option name="PROGRAM_PARAMETERS" value="-homedir -noCrashReport"/>
+              <option name="WORKING_DIRECTORY" value="file://$PROJECT_DIR$"/>
+              <option name="ALTERNATIVE_JRE_PATH_ENABLED" value="false"/>
+              <option name="ALTERNATIVE_JRE_PATH" value=""/>
+              <option name="ENABLE_SWING_INSPECTOR" value="false"/>
+              <option name="ENV_VARIABLES"/>
+              <option name="PASS_PARENT_ENVS" value="true"/>
+              <module name="PC"/>
+              <envs/>
+              <RunnerSettings RunnerId="Debug">
+                <option name="DEBUG_PORT" value=""/>
+                <option name="TRANSPORT" value="0"/>
+                <option name="LOCAL" value="true"/>
+              </RunnerSettings>
+              <RunnerSettings RunnerId="Run"/>
+              <ConfigurationWrapper RunnerId="Debug"/>
+              <ConfigurationWrapper RunnerId="Run"/>
+              <method/>
+            </configuration>
+        '''))
+
+        runManager.append(new XmlParser().parseText('''
+            <configuration default="false" name="TerasologyPC (EXTREME 8GB)" type="Application" factoryName="Application">
+              <extension name="coverage" enabled="false" merge="false" runner="idea">
+                <pattern>
+                  <option name="PATTERN" value="org.terasology.engine.*"/>
+                  <option name="ENABLED" value="true"/>
+                </pattern>
+              </extension>
+              <option name="MAIN_CLASS_NAME" value="org.terasology.engine.Terasology"/>
+              <option name="VM_PARAMETERS" value="-Xms256m -Xmx8192m"/>
               <option name="PROGRAM_PARAMETERS" value="-homedir -noCrashReport"/>
               <option name="WORKING_DIRECTORY" value="file://$PROJECT_DIR$"/>
               <option name="ALTERNATIVE_JRE_PATH_ENABLED" value="false"/>
@@ -189,8 +220,40 @@ ext {
                 </pattern>
               </extension>
               <option name="MAIN_CLASS_NAME" value="org.terasology.engine.Terasology"/>
-              <option name="VM_PARAMETERS" value="-Xms256m -Xmx1024m"/>
+              <option name="VM_PARAMETERS" value="-Xms256m -Xmx1536m"/>
               <option name="PROGRAM_PARAMETERS" value="-homedir=terasology-2ndclient -noCrashReport"/>
+              <option name="WORKING_DIRECTORY" value="file://$PROJECT_DIR$"/>
+              <option name="ALTERNATIVE_JRE_PATH_ENABLED" value="false"/>
+              <option name="ALTERNATIVE_JRE_PATH" value=""/>
+              <option name="ENABLE_SWING_INSPECTOR" value="false"/>
+              <option name="ENV_VARIABLES"/>
+              <option name="PASS_PARENT_ENVS" value="true"/>
+              <module name="PC"/>
+              <envs/>
+              <RunnerSettings RunnerId="Debug">
+                <option name="DEBUG_PORT" value=""/>
+                <option name="TRANSPORT" value="0"/>
+                <option name="LOCAL" value="true"/>
+              </RunnerSettings>
+              <RunnerSettings RunnerId="Run"/>
+              <ConfigurationWrapper RunnerId="Debug"/>
+              <ConfigurationWrapper RunnerId="Run"/>
+              <method/>
+            </configuration>
+        '''))
+
+        // Run config for a *third* client in its own data dir (for more extensive multiplayer testing)
+        runManager.append(new XmlParser().parseText('''
+            <configuration default="false" name="TerasologyPC (3rd client)" type="Application" factoryName="Application">
+              <extension name="coverage" enabled="false" merge="false" runner="idea">
+                <pattern>
+                  <option name="PATTERN" value="org.terasology.engine.*"/>
+                  <option name="ENABLED" value="true"/>
+                </pattern>
+              </extension>
+              <option name="MAIN_CLASS_NAME" value="org.terasology.engine.Terasology"/>
+              <option name="VM_PARAMETERS" value="-Xms256m -Xmx1536m"/>
+              <option name="PROGRAM_PARAMETERS" value="-homedir=terasology-3rdclient -noCrashReport"/>
               <option name="WORKING_DIRECTORY" value="file://$PROJECT_DIR$"/>
               <option name="ALTERNATIVE_JRE_PATH_ENABLED" value="false"/>
               <option name="ALTERNATIVE_JRE_PATH" value=""/>
@@ -221,7 +284,7 @@ ext {
                 </pattern>
               </extension>
               <option name="MAIN_CLASS_NAME" value="org.terasology.engine.Terasology"/>
-              <option name="VM_PARAMETERS" value="-Xms256m -Xmx1024m"/>
+              <option name="VM_PARAMETERS" value="-Xms256m -Xmx1536m"/>
               <option name="PROGRAM_PARAMETERS" value="-homedir"/>
               <option name="WORKING_DIRECTORY" value="file://$PROJECT_DIR$"/>
               <option name="ALTERNATIVE_JRE_PATH_ENABLED" value="false"/>
@@ -253,7 +316,7 @@ ext {
                 </pattern>
               </extension>
               <option name="MAIN_CLASS_NAME" value="org.terasology.engine.Terasology"/>
-              <option name="VM_PARAMETERS" value="-Xms256m -Xmx1024m"/>
+              <option name="VM_PARAMETERS" value="-Xms256m -Xmx1536m"/>
               <option name="PROGRAM_PARAMETERS" value="-homedir -noCrashReport -noSplash"/>
               <option name="WORKING_DIRECTORY" value="file://$PROJECT_DIR$"/>
               <option name="ALTERNATIVE_JRE_PATH_ENABLED" value="false"/>
@@ -285,7 +348,7 @@ ext {
                 </pattern>
               </extension>
               <option name="MAIN_CLASS_NAME" value="org.terasology.engine.Terasology"/>
-              <option name="VM_PARAMETERS" value="-Xms256m -Xmx1024m"/>
+              <option name="VM_PARAMETERS" value="-Xms256m -Xmx1536m"/>
               <option name="PROGRAM_PARAMETERS" value="-homedir -noCrashReport -loadlastgame"/>
               <option name="WORKING_DIRECTORY" value="file://$PROJECT_DIR$"/>
               <option name="ALTERNATIVE_JRE_PATH_ENABLED" value="false"/>
@@ -317,7 +380,7 @@ ext {
                 </pattern>
               </extension>
               <option name="MAIN_CLASS_NAME" value="org.terasology.engine.Terasology"/>
-              <option name="VM_PARAMETERS" value="-Xms256m -Xmx1024m"/>
+              <option name="VM_PARAMETERS" value="-Xms256m -Xmx1536m"/>
               <option name="PROGRAM_PARAMETERS" value="-homedir -noCrashReport -noSaveGames"/>
               <option name="WORKING_DIRECTORY" value="file://$PROJECT_DIR$"/>
               <option name="ALTERNATIVE_JRE_PATH_ENABLED" value="false"/>
@@ -349,7 +412,7 @@ ext {
                 </pattern>
               </extension>
               <option name="MAIN_CLASS_NAME" value="org.terasology.engine.Terasology"/>
-              <option name="VM_PARAMETERS" value="-Xms256m -Xmx1024m"/>
+              <option name="VM_PARAMETERS" value="-Xms256m -Xmx1536m"/>
               <option name="PROGRAM_PARAMETERS" value="-homedir -noCrashReport -noSound"/>
               <option name="WORKING_DIRECTORY" value="file://$PROJECT_DIR$"/>
               <option name="ALTERNATIVE_JRE_PATH_ENABLED" value="false"/>
@@ -381,8 +444,8 @@ ext {
                 </pattern>
               </extension>
               <option name="MAIN_CLASS_NAME" value="org.terasology.engine.Terasology"/>
-              <option name="VM_PARAMETERS" value="-Xms256m -Xmx1024m"/>
-              <option name="PROGRAM_PARAMETERS" value="-headless -homedir=terasology-server"/>
+              <option name="VM_PARAMETERS" value="-Xms256m -Xmx1536m"/>
+              <option name="PROGRAM_PARAMETERS" value="-headless -homedir=terasology-server -overrideDefaultConfig=override.cfg"/>
               <option name="WORKING_DIRECTORY" value="file://$PROJECT_DIR$"/>
               <option name="ALTERNATIVE_JRE_PATH_ENABLED" value="false"/>
               <option name="ALTERNATIVE_JRE_PATH" value=""/>
@@ -413,7 +476,7 @@ ext {
                 </pattern>
               </extension>
               <option name="MAIN_CLASS_NAME" value="org.terasology.editor.TeraEd"/>
-              <option name="VM_PARAMETERS" value="-Xms256m -Xmx1024m"/>
+              <option name="VM_PARAMETERS" value="-Xms256m -Xmx1536m"/>
               <option name="PROGRAM_PARAMETERS" value="-homedir"/>
               <option name="WORKING_DIRECTORY" value="file://$PROJECT_DIR$"/>
               <option name="ALTERNATIVE_JRE_PATH_ENABLED" value="false"/>
@@ -432,6 +495,32 @@ ext {
               <ConfigurationWrapper RunnerId="Debug"/>
               <ConfigurationWrapper RunnerId="Run"/>
               <method/>
+            </configuration>
+        '''))
+
+        // Run config for a single module's tests *without* running all engine tests (good template for making other single-module-only test run configs)
+        // Naturally won't work unless you actually have the NameGenerator module present locally
+        runManager.append(new XmlParser().parseText('''
+            <configuration default="false" name="All in NameGenerator" type="JUnit" factoryName="JUnit">
+              <extension name="coverage" enabled="false" merge="false" runner="idea" />
+              <module name="NameGenerator" />
+              <option name="ALTERNATIVE_JRE_PATH_ENABLED" value="false" />
+              <option name="ALTERNATIVE_JRE_PATH" />
+              <option name="PACKAGE_NAME" value="" />
+              <option name="MAIN_CLASS_NAME" value="" />
+              <option name="METHOD_NAME" value="" />
+              <option name="TEST_OBJECT" value="package" />
+              <option name="VM_PARAMETERS" value="" />
+              <option name="PARAMETERS" value="" />
+              <option name="WORKING_DIRECTORY" value="file://$PROJECT_DIR$" />
+              <option name="ENV_VARIABLES" />
+              <option name="PASS_PARENT_ENVS" value="true" />
+              <option name="TEST_SEARCH_SCOPE">
+                <value defaultName="singleModule" />
+              </option>
+              <envs />
+              <patterns />
+              <method />
             </configuration>
         '''))
 

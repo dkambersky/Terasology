@@ -1,11 +1,11 @@
 /*
- * Copyright 2014 MovingBlocks
+ * Copyright 2017 MovingBlocks
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- *  http://www.apache.org/licenses/LICENSE-2.0
+ *      http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -18,13 +18,14 @@ package org.terasology.engine.subsystem.headless.renderer;
 import com.google.common.collect.Lists;
 import org.terasology.config.Config;
 import org.terasology.context.Context;
-import org.terasology.logic.players.LocalPlayer;
 import org.terasology.logic.players.LocalPlayerSystem;
 import org.terasology.math.Region3i;
 import org.terasology.math.geom.Vector3f;
 import org.terasology.math.geom.Vector3i;
 import org.terasology.monitoring.PerformanceMonitor;
+import org.terasology.rendering.assets.material.Material;
 import org.terasology.rendering.cameras.Camera;
+import org.terasology.rendering.cameras.SubmersibleCamera;
 import org.terasology.rendering.world.viewDistance.ViewDistance;
 import org.terasology.rendering.world.WorldRenderer;
 import org.terasology.world.WorldProvider;
@@ -44,7 +45,7 @@ public class HeadlessWorldRenderer implements WorldRenderer {
     private WorldProvider worldProvider;
     private ChunkProvider chunkProvider;
 
-    private Camera noCamera = new NullCamera();
+    private Camera noCamera = new NullCamera(null, null);
 
     /* CHUNKS */
     private boolean pendingChunks;
@@ -62,6 +63,21 @@ public class HeadlessWorldRenderer implements WorldRenderer {
     }
 
     @Override
+    public float getSecondsSinceLastFrame() {
+        return 0;
+    }
+
+    @Override
+    public Material getMaterial(String assetId) {
+        return null;
+    }
+
+    @Override
+    public boolean isFirstRenderingStageForCurrentFrame() {
+        return false;
+    }
+
+    @Override
     public void onChunkLoaded(Vector3i pos) {
 
     }
@@ -72,29 +88,13 @@ public class HeadlessWorldRenderer implements WorldRenderer {
     }
 
     @Override
-    public Camera getActiveCamera() {
-        return noCamera;
+    public SubmersibleCamera getActiveCamera() {
+        return (SubmersibleCamera) noCamera;
     }
 
     @Override
     public Camera getLightCamera() {
         return noCamera;
-    }
-
-    @Override
-    public ChunkProvider getChunkProvider() {
-        return chunkProvider;
-    }
-
-    @Override
-    public WorldProvider getWorldProvider() {
-        return worldProvider;
-    }
-
-    @Override
-    public void setPlayer(LocalPlayer localPlayer) {
-        // TODO Auto-generated method stub
-
     }
 
     @Override
@@ -114,8 +114,22 @@ public class HeadlessWorldRenderer implements WorldRenderer {
     }
 
     @Override
-    public void render(WorldRenderingStage mono) {
+    public void increaseTrianglesCount(int increase) {
+        // we are not going to count triangles in headless
+    }
+
+    @Override
+    public void increaseNotReadyChunkCount(int increase) {
+        // we are not going to count not ready chunks in headless
+    }
+
+    @Override
+    public void render(RenderingStage mono) {
         // TODO Auto-generated method stub
+    }
+
+    @Override
+    public void requestTaskListRefresh() {
 
     }
 
@@ -132,67 +146,43 @@ public class HeadlessWorldRenderer implements WorldRenderer {
     }
 
     @Override
-    public void changeViewDistance(ViewDistance viewDistance) {
+    public void setViewDistance(ViewDistance viewDistance) {
         // TODO Auto-generated method stub
 
     }
 
     @Override
-    public float getSunlightValue() {
-        // TODO Auto-generated method stub
-        return 0;
-    }
-
-    @Override
-    public float getBlockLightValue() {
+    public float getRenderingLightIntensityAt(Vector3f vector3f) {
         // TODO Auto-generated method stub
         return 0;
     }
 
     @Override
-    public float getRenderingLightValueAt(Vector3f vector3f) {
+    public float getMainLightIntensityAt(Vector3f worldPos) {
         // TODO Auto-generated method stub
         return 0;
     }
 
     @Override
-    public float getSunlightValueAt(Vector3f worldPos) {
+    public float getBlockLightIntensityAt(Vector3f worldPos) {
         // TODO Auto-generated method stub
         return 0;
     }
 
     @Override
-    public float getBlockLightValueAt(Vector3f worldPos) {
+    public float getTimeSmoothedMainLightIntensity() {
         // TODO Auto-generated method stub
         return 0;
     }
 
     @Override
-    public float getSmoothedPlayerSunlightValue() {
+    public float getMillisecondsSinceRenderingStart() {
         // TODO Auto-generated method stub
         return 0;
     }
 
     @Override
-    public boolean isHeadUnderWater() {
-        // TODO Auto-generated method stub
-        return false;
-    }
-
-    @Override
-    public Vector3f getTint() {
-        // TODO Auto-generated method stub
-        return null;
-    }
-
-    @Override
-    public float getTick() {
-        // TODO Auto-generated method stub
-        return 0;
-    }
-
-    @Override
-    public WorldRenderingStage getCurrentRenderStage() {
+    public RenderingStage getCurrentRenderStage() {
         // TODO Auto-generated method stub
         return null;
     }

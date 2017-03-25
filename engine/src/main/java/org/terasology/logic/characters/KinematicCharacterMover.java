@@ -1,5 +1,5 @@
 /*
- * Copyright 2013 MovingBlocks
+ * Copyright 2016 MovingBlocks
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -14,8 +14,6 @@
  * limitations under the License.
  */
 package org.terasology.logic.characters;
-
-import java.math.RoundingMode;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -38,6 +36,8 @@ import org.terasology.physics.engine.SweepCallback;
 import org.terasology.physics.events.MovedEvent;
 import org.terasology.world.WorldProvider;
 import org.terasology.world.block.Block;
+
+import java.math.RoundingMode;
 
 /**
  * Calculates character movement using a physics-engine provided CharacterCollider.
@@ -73,12 +73,12 @@ public class KinematicCharacterMover implements CharacterMover {
     /**
      * The amount of extra distance added to horizontal movement to allow for penetration.
      */
-    private static final float HORIZONTAL_PENETRATION_LEEWAY = 0.04f;
+    public static final float HORIZONTAL_PENETRATION_LEEWAY = 0.04f;
 
     /**
      * The amount of extra distance added to vertical movement to allow for penetration.
      */
-    private static final float VERTICAL_PENETRATION_LEEWAY = 0.05f;
+    public static final float VERTICAL_PENETRATION_LEEWAY = 0.05f;
     private static final float CHECK_FORWARD_DIST = 0.05f;
 
     private static final Logger logger = LoggerFactory.getLogger(KinematicCharacterMover.class);
@@ -633,6 +633,11 @@ public class KinematicCharacterMover implements CharacterMover {
             entity.send(new MovedEvent(distanceMoved, state.getPosition()));
         }
 
+        // Upon hitting solid ground, reset the number of jumps back to the maximum value.
+        if (state.isGrounded()) {
+            movementComp.numberOfJumpsLeft = movementComp.numberOfJumpsMax;
+        }
+
         if (moveResult.isBottomHit()) {
             if (!state.isGrounded() && movementComp.mode.canBeGrounded) {
                 if (input.isFirstRun()) {
@@ -642,21 +647,55 @@ public class KinematicCharacterMover implements CharacterMover {
                     entity.send(new VerticalCollisionEvent(state.getPosition(), landVelocity));
                 }
                 state.setGrounded(true);
+                movementComp.numberOfJumpsLeft = movementComp.numberOfJumpsMax;
             }
             endVelocity.y = 0;
 
             // Jumping is only possible, if the entity is standing on ground
             if (input.isJumpRequested()) {
+
                 state.setGrounded(false);
-                endVelocity.y += movementComp.jumpSpeed;
+
+                // Send event to allow for other systems to modify the jump force.
+                AffectJumpForceEvent affectJumpForceEvent = new AffectJumpForceEvent(movementComp.jumpSpeed);
+                entity.send(affectJumpForceEvent);
+                endVelocity.y += affectJumpForceEvent.getResultValue();
                 if (input.isFirstRun()) {
                     entity.send(new JumpEvent());
                 }
+
+                // Send event to allow for other systems to modify the max number of jumps.
+                AffectMultiJumpEvent affectMultiJumpEvent = new AffectMultiJumpEvent(movementComp.baseNumberOfJumpsMax);
+                entity.send(affectMultiJumpEvent);
+                movementComp.numberOfJumpsMax = (int) affectMultiJumpEvent.getResultValue();
+
+                movementComp.numberOfJumpsLeft--;
             }
         } else {
             if (moveResult.isTopHit() && endVelocity.y > 0) {
                 endVelocity.y = -0.5f * endVelocity.y;
             }
+
+            // Jump again in mid-air only if a jump was requested and there are jumps remaining.
+            if (input.isJumpRequested() && movementComp.numberOfJumpsLeft > 0) {
+                state.setGrounded(false);
+
+                // Send event to allow for other systems to modify the jump force.
+                AffectJumpForceEvent affectJumpForceEvent = new AffectJumpForceEvent(movementComp.jumpSpeed);
+                entity.send(affectJumpForceEvent);
+                endVelocity.y += affectJumpForceEvent.getResultValue();
+                if (input.isFirstRun()) {
+                    entity.send(new JumpEvent());
+                }
+
+                // Send event to allow for other systems to modify the max number of jumps.
+                AffectMultiJumpEvent affectMultiJumpEvent = new AffectMultiJumpEvent(movementComp.baseNumberOfJumpsMax);
+                entity.send(affectMultiJumpEvent);
+                movementComp.numberOfJumpsMax = (int) affectMultiJumpEvent.getResultValue();
+
+                movementComp.numberOfJumpsLeft--;
+            }
+
             state.setGrounded(false);
         }
         state.getVelocity().set(endVelocity);

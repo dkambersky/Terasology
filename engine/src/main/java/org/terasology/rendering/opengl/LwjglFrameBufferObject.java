@@ -1,5 +1,5 @@
 /*
- * Copyright 2014 MovingBlocks
+ * Copyright 2016 MovingBlocks
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -27,7 +27,6 @@ import org.terasology.rendering.assets.texture.Texture;
 import org.terasology.rendering.assets.texture.TextureData;
 
 import java.nio.ByteBuffer;
-import java.nio.FloatBuffer;
 import java.nio.IntBuffer;
 
 import static org.lwjgl.opengl.GL11.GL_MODELVIEW;
@@ -39,7 +38,6 @@ import static org.lwjgl.opengl.GL11.glOrtho;
 
 /**
  * A OpenGL framebuffer. Generates the fbo and a backing texture.
- *
  */
 public class LwjglFrameBufferObject implements FrameBufferObject {
     private int frame;
@@ -62,13 +60,6 @@ public class LwjglFrameBufferObject implements FrameBufferObject {
         if (result != GL30.GL_FRAMEBUFFER_COMPLETE) {
             throw new IllegalStateException("Something went wrong with framebuffer! " + result);
         }
-
-        // clear and fill with full alpha
-        FloatBuffer buffer = BufferUtils.createFloatBuffer(16);
-        GL11.glGetFloat(GL11.GL_COLOR_CLEAR_VALUE, buffer);
-        GL11.glClearColor(0f, 0f, 0f, 1f);
-        GL11.glClear(GL11.GL_COLOR_BUFFER_BIT);
-        GL11.glClearColor(buffer.get(), buffer.get(), buffer.get(), buffer.get());  // reset
 
         GL30.glBindFramebuffer(GL30.GL_FRAMEBUFFER, 0);
     }
@@ -97,9 +88,6 @@ public class LwjglFrameBufferObject implements FrameBufferObject {
         glOrtho(0, Display.getWidth(), Display.getHeight(), 0, 0, 2048f);
         glMatrixMode(GL_MODELVIEW);
         glLoadIdentity();
-
-        // reset color mask
-        GL11.glColorMask(true, true, true, true);
     }
 
     @Override
@@ -117,8 +105,5 @@ public class LwjglFrameBufferObject implements FrameBufferObject {
         glOrtho(0, size.x(), size.y(), 0, 0, 2048f);
         glMatrixMode(GL_MODELVIEW);
         glLoadIdentity();
-
-        // disable writing alpha values so that blending semi-transparent billboards works as expected
-        GL11.glColorMask(true, true, true, false);
     }
 }

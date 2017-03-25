@@ -16,8 +16,8 @@
 package org.terasology.rendering.nui.widgets;
 
 import org.terasology.input.MouseInput;
-import org.terasology.math.geom.Rect2i;
 import org.terasology.math.TeraMath;
+import org.terasology.math.geom.Rect2i;
 import org.terasology.math.geom.Vector2i;
 import org.terasology.rendering.nui.BaseInteractionListener;
 import org.terasology.rendering.nui.Canvas;
@@ -31,6 +31,7 @@ import org.terasology.rendering.nui.events.NUIMouseDragEvent;
 import org.terasology.rendering.nui.events.NUIMouseReleaseEvent;
 
 /**
+ * A simple scrollbar
  */
 public class UIScrollbar extends CoreWidget {
 
@@ -39,6 +40,7 @@ public class UIScrollbar extends CoreWidget {
     @LayoutConfig
     private Binding<Integer> range = new DefaultBinding<>(100);
 
+    @LayoutConfig
     private Binding<Integer> value = new DefaultBinding<>(0);
 
     @LayoutConfig
@@ -88,15 +90,17 @@ public class UIScrollbar extends CoreWidget {
             if (event.getMouseButton() == MouseInput.MOUSE_LEFT) {
                 Vector2i pos = event.getRelativeMousePosition();
                 mouseOffset = (sliderSize > handleSize) ? (handleSize / 2) : 0;
-                if (vertical) {
-                    updatePosition(pos.y - mouseOffset);
 
-                    setValue(TeraMath.clamp(pos.y - mouseOffset, 0, sliderSize) * getRange() / sliderSize);
+                int pixelPosition = vertical ? pos.y - mouseOffset : pos.x - mouseOffset;
+                updatePosition(pixelPosition);
+
+                if (sliderSize > 0) {
+                    int clamped = TeraMath.clamp(pixelPosition, 0, sliderSize);
+                    setValue(clamped * getRange() / sliderSize);
                 } else {
-                    updatePosition(pos.x - mouseOffset);
-
-                    setValue(TeraMath.clamp(pos.x - mouseOffset, 0, sliderSize) * getRange() / sliderSize);
+                    setValue(0);
                 }
+
                 dragging = true;
                 return true;
             }
@@ -192,10 +196,16 @@ public class UIScrollbar extends CoreWidget {
         minimum = binding;
     }
 
+    /**
+     * @return The minimum value scrollable to.
+     */
     public int getMinimum() {
         return minimum.get();
     }
 
+    /**
+     * @param val The new minimum above zero.
+     */
     public void setMinimum(int val) {
         minimum.set(val);
     }
@@ -204,10 +214,16 @@ public class UIScrollbar extends CoreWidget {
         range = binding;
     }
 
+    /**
+     * @return The max value scrollable to.
+     */
     public int getRange() {
         return range.get();
     }
 
+    /**
+     * @param val The new maximum scrollable.
+     */
     public void setRange(int val) {
         range.set(val);
     }
@@ -216,10 +232,16 @@ public class UIScrollbar extends CoreWidget {
         value = binding;
     }
 
+    /**
+     * @return The current scroll value.
+     */
     public int getValue() {
         return TeraMath.clamp(value.get(), getMinimum(), getMinimum() + getRange());
     }
 
+    /**
+     * @param val The new level of scrolling to set.
+     */
     public void setValue(int val) {
         value.set(val);
     }

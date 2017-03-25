@@ -1,5 +1,5 @@
 /*
- * Copyright 2014 MovingBlocks
+ * Copyright 2016 MovingBlocks
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -24,6 +24,8 @@ import org.terasology.rendering.FontColor;
 import org.terasology.rendering.nui.BaseInteractionListener;
 import org.terasology.rendering.nui.CoreScreenLayer;
 import org.terasology.rendering.nui.InteractionListener;
+import org.terasology.rendering.nui.animation.SwipeMenuAnimationSystem;
+import org.terasology.rendering.nui.animation.SwipeMenuAnimationSystem.Direction;
 import org.terasology.rendering.nui.databinding.ReadOnlyBinding;
 import org.terasology.rendering.nui.events.NUIMouseClickEvent;
 import org.terasology.rendering.nui.layouts.ScrollableArea;
@@ -31,8 +33,6 @@ import org.terasology.rendering.nui.widgets.UIText;
 
 import java.util.List;
 
-/**
- */
 public class ConsoleScreen extends CoreScreenLayer {
 
     @In
@@ -57,6 +57,9 @@ public class ConsoleScreen extends CoreScreenLayer {
 
     @Override
     public void initialise() {
+
+        setAnimationSystem(new SwipeMenuAnimationSystem(0.2f, Direction.TOP_TO_BOTTOM));
+
         final ScrollableArea scrollArea = find("scrollArea", ScrollableArea.class);
         scrollArea.moveToBottom();
 
@@ -102,7 +105,7 @@ public class ConsoleScreen extends CoreScreenLayer {
                     "You can use auto-completion by typing a partial command then hitting [tab] - examples:" + Console.NEW_LINE + Console.NEW_LINE +
                     "gh + [tab] => 'ghost'" + Console.NEW_LINE +
                     "help gh + [tab] => 'help ghost' (can auto complete commands fed to help)" + Console.NEW_LINE +
-                    "giv + [tab] => 'giveBlock giveItem givePermission' (use [tab] again to cycle between choices)" + Console.NEW_LINE +
+                    "giv + [tab] => 'give givePermission' (use [tab] again to cycle between choices)" + Console.NEW_LINE +
                     "lS + [tab] => 'listShapes' (camel casing abbreviated commands)" + Console.NEW_LINE);
             welcomePrinted = true;
         }

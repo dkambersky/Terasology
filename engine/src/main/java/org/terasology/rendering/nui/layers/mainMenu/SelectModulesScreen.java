@@ -20,6 +20,7 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.terasology.assets.ResourceUrn;
 import org.terasology.config.Config;
 import org.terasology.config.ModuleConfig;
 import org.terasology.engine.SimpleUri;
@@ -40,9 +41,12 @@ import org.terasology.registry.In;
 import org.terasology.rendering.nui.Canvas;
 import org.terasology.rendering.nui.CoreScreenLayer;
 import org.terasology.rendering.nui.WidgetUtil;
+import org.terasology.rendering.nui.animation.MenuAnimationSystems;
 import org.terasology.rendering.nui.databinding.Binding;
 import org.terasology.rendering.nui.databinding.ReadOnlyBinding;
 import org.terasology.rendering.nui.itemRendering.AbstractItemRenderer;
+import org.terasology.rendering.nui.widgets.ResettableUIText;
+import org.terasology.rendering.nui.widgets.TextChangeEventListener;
 import org.terasology.rendering.nui.widgets.UIButton;
 import org.terasology.rendering.nui.widgets.UILabel;
 import org.terasology.rendering.nui.widgets.UIList;
@@ -65,8 +69,9 @@ import java.util.stream.Collectors;
  */
 public class SelectModulesScreen extends CoreScreenLayer {
 
+    public static final ResourceUrn ASSET_URI = new ResourceUrn("engine:selectModsScreen");
+
     private static final Logger logger = LoggerFactory.getLogger(SelectModulesScreen.class);
-    private static final Name ENGINE_MODULE_NAME = new Name("engine");
 
     @In
     private ModuleManager moduleManager;
@@ -82,13 +87,14 @@ public class SelectModulesScreen extends CoreScreenLayer {
 
     private Map<Name, ModuleSelectionInfo> modulesLookup;
     private List<ModuleSelectionInfo> sortedModules;
+    private List<ModuleSelectionInfo> allSortedModules;
     private DependencyResolver resolver;
     private ModuleListDownloader metaDownloader;
     private boolean needsUpdate = true;
 
     private final Comparator<? super ModuleSelectionInfo> moduleInfoComparator = (o1, o2) ->
             o1.getMetadata().getDisplayName().toString().compareTo(
-            o2.getMetadata().getDisplayName().toString());
+                    o2.getMetadata().getDisplayName().toString());
 
     @Override
     public void onOpened() {
@@ -103,6 +109,7 @@ public class SelectModulesScreen extends CoreScreenLayer {
 
     @Override
     public void initialise() {
+        setAnimationSystem(MenuAnimationSystems.createDefaultSwipeAnimation());
         metaDownloader = new ModuleListDownloader(config.getNetwork().getMasterServer());
 
         resolver = new DependencyResolver(moduleManager.getRegistry());
@@ -119,6 +126,7 @@ public class SelectModulesScreen extends CoreScreenLayer {
         }
 
         Collections.sort(sortedModules, moduleInfoComparator);
+        allSortedModules = new ArrayList<>(sortedModules);
 
         final UIList<ModuleSelectionInfo> moduleList = find("moduleList", UIList.class);
         if (moduleList != null) {
@@ -131,7 +139,7 @@ public class SelectModulesScreen extends CoreScreenLayer {
 
                 @Override
                 public void draw(ModuleSelectionInfo value, Canvas canvas) {
-                    if (isSelectedGameplayModule(value)) {
+                    if (isSelectedGameplayModule(value) && value.isValidToSelect()) {
                         canvas.setMode("gameplay");
                     } else if (value.isSelected() && value.isExplicitSelection()) {
                         canvas.setMode("enabled");
@@ -162,6 +170,21 @@ public class SelectModulesScreen extends CoreScreenLayer {
                     select(item);
                 }
             });
+
+            ResettableUIText moduleSearch = find("moduleSearch", ResettableUIText.class);
+            if (moduleSearch != null) {
+                moduleSearch.subscribe(new TextChangeEventListener() {
+                    @Override
+                    public void onTextChange(String oldText, String newText) {
+                        sortedModules.clear();
+                        for (ModuleSelectionInfo m : allSortedModules) {
+                            if (m.getMetadata().getDisplayName().toString().toLowerCase().contains(newText.toLowerCase())) {
+                                sortedModules.add(m);
+                            }
+                        }
+                    }
+                });
+            }
 
             final Binding<ModuleMetadata> moduleInfoBinding = new ReadOnlyBinding<ModuleMetadata>() {
                 @Override
@@ -195,7 +218,7 @@ public class SelectModulesScreen extends CoreScreenLayer {
                         if (sel == null) {
                             return "";
                         }
-                        return sel.isPresent() ? sel.getMetadata().getVersion().toString() : "none";
+                        return sel.isPresent() ? sel.getMetadata().getVersion().toString() : translationSystem.translate("${engine:menu#module-version-installed-none}");
                     }
                 });
             }
@@ -210,7 +233,7 @@ public class SelectModulesScreen extends CoreScreenLayer {
                             return "";
                         }
                         return (sel.getOnlineVersion() != null)
-                              ? sel.getOnlineVersion().getVersion().toString() : "none";
+                                ? sel.getOnlineVersion().getVersion().toString() : "none";
                     }
                 });
             }
@@ -247,17 +270,17 @@ public class SelectModulesScreen extends CoreScreenLayer {
                         ModuleSelectionInfo info = moduleList.getSelection();
                         if (info != null) {
                             if (isSelectedGameplayModule(info)) {
-                                return "Active gameplay";
+                                return translationSystem.translate("${engine:menu#module-status-activegameplay}");
                             } else if (info.isSelected() && info.isExplicitSelection()) {
-                                return "Activated";
+                                return translationSystem.translate("${engine:menu#module-status-activated}");
                             } else if (info.isSelected()) {
-                                return "Dependency";
+                                return translationSystem.translate("${engine:menu#module-status-dependency}");
                             } else if (!info.isPresent()) {
-                                return "Not present";
+                                return translationSystem.translate("${engine:menu#module-status-notpresent}");
                             } else if (info.isValidToSelect()) {
-                                return "Available";
+                                return translationSystem.translate("${engine:menu#module-status-available}");
                             } else {
-                                return "Incompatible or unresolved dependencies";
+                                return translationSystem.translate("${engine:menu#module-status-error}");
                             }
                         }
                         return "";
@@ -291,12 +314,12 @@ public class SelectModulesScreen extends CoreScreenLayer {
                     public String get() {
                         if (moduleList.getSelection() != null) {
                             if (moduleList.getSelection().isExplicitSelection()) {
-                                return "Deactivate";
+                                return translationSystem.translate("${engine:menu#deactivate-module}");
                             } else {
-                                return "Activate";
+                                return translationSystem.translate("${engine:menu#activate-module}");
                             }
                         }
-                        return "Activate";  // button should be disabled
+                        return translationSystem.translate("${engine:menu#activate-module}");  // button should be disabled
                     }
                 });
             }
@@ -305,20 +328,28 @@ public class SelectModulesScreen extends CoreScreenLayer {
             if (downloadButton != null) {
                 downloadButton.subscribe(button -> {
                     if (moduleList.getSelection() != null) {
-
                         ModuleSelectionInfo info = moduleList.getSelection();
                         startDownloadingNewestModulesRequiredFor(info);
                     }
                 });
-
+                downloadButton.bindEnabled(new ReadOnlyBinding<Boolean>() {
+                    @Override
+                    public Boolean get() {
+                        try {
+                            return moduleList.getSelection().getOnlineVersion() != null;
+                        } catch (NullPointerException e) {
+                            return false;
+                        }
+                    }
+                });
                 downloadButton.bindText(new ReadOnlyBinding<String>() {
                     @Override
                     public String get() {
                         ModuleSelectionInfo info = moduleList.getSelection();
                         if (info != null && !info.isPresent()) {
-                            return "Download";
+                            return translationSystem.translate("${engine:menu#download-module}");
                         } else {
-                            return "Update";
+                            return translationSystem.translate("${engine:menu#update-module}");
                         }
                     }
                 });
@@ -331,8 +362,7 @@ public class SelectModulesScreen extends CoreScreenLayer {
             }
         }
 
-
-        WidgetUtil.trySubscribe(this, "close", button -> getManager().popScreen());
+        WidgetUtil.trySubscribe(this, "close", button -> triggerBackAnimation());
     }
 
     private void startDownloadingNewestModulesRequiredFor(ModuleSelectionInfo moduleMetadata) {
@@ -348,7 +378,7 @@ public class SelectModulesScreen extends CoreScreenLayer {
         Map<URL, Path> urlToTargetMap = determineDownloadUrlsFor(modulesToDownload);
 
         ConfirmPopup confirmPopup = getManager().pushScreen(ConfirmPopup.ASSET_URI, ConfirmPopup.class);
-        confirmPopup.setMessage("Confirm Download", modulesToDownload.size()  + " modules will be downloaded");
+        confirmPopup.setMessage("Confirm Download", modulesToDownload.size() + " modules will be downloaded");
         confirmPopup.setOkHandler(() -> downloadModules(urlToTargetMap));
     }
 
@@ -357,18 +387,18 @@ public class SelectModulesScreen extends CoreScreenLayer {
         ModuleLoader loader = new ModuleLoader(moduleManager.getModuleMetadataReader());
         loader.setModuleInfoPath(TerasologyConstants.MODULE_INFO_FILENAME);
         popup.onSuccess(paths -> {
-                for (Path filePath: paths) {
-                    try {
-                        Module module = loader.load(filePath);
-                        modulesLookup.get(module.getId()).setLocalVersion(module);
-                        moduleManager.getRegistry().add(module);
-                    } catch (IOException e) {
-                        logger.warn("Could not load module {}", filePath.getFileName(), e);
-                        return;
-                    }
-                    updateValidToSelect();
+            for (Path filePath : paths) {
+                try {
+                    Module module = loader.load(filePath);
+                    modulesLookup.get(module.getId()).setLocalVersion(module);
+                    moduleManager.getRegistry().add(module);
+                } catch (IOException e) {
+                    logger.warn("Could not load module {}", filePath.getFileName(), e);
+                    return;
                 }
-            });
+                updateValidToSelect();
+            }
+        });
         ProgressListener progressListener = progress ->
                 popup.setMessage("Downloading required modules", String.format("Please wait ... %d%%", (int) (progress * 100f)));
         // to ensure that the initial message gets set:
@@ -379,7 +409,7 @@ public class SelectModulesScreen extends CoreScreenLayer {
 
     private Map<URL, Path> determineDownloadUrlsFor(List<ModuleSelectionInfo> modulesToDownload) {
         Map<URL, Path> urlToTargetMap = Maps.newLinkedHashMap();
-        for (ModuleSelectionInfo moduleSelectionInfo: modulesToDownload) {
+        for (ModuleSelectionInfo moduleSelectionInfo : modulesToDownload) {
             ModuleMetadata metaData = moduleSelectionInfo.getOnlineVersion().getMetadata();
             String version = metaData.getVersion().toString();
             String id = metaData.getId().toString();
@@ -411,8 +441,8 @@ public class SelectModulesScreen extends CoreScreenLayer {
                 Name depName = dependencyInfo.getId();
 
                 ModuleMetadata depMetaData;
-                if (depName.equals(ENGINE_MODULE_NAME)) {
-                    depMetaData = moduleManager.getRegistry().getLatestModuleVersion(ENGINE_MODULE_NAME).getMetadata();
+                if (depName.equals(TerasologyConstants.ENGINE_MODULE)) {
+                    depMetaData = moduleManager.getRegistry().getLatestModuleVersion(TerasologyConstants.ENGINE_MODULE).getMetadata();
                     if (!dependencyInfo.versionRange().contains(depMetaData.getVersion())) {
                         throw new DependencyResolutionFailed(String.format(
                                 "Module %s %s requires %s in version range %s, but you are using version %s",
@@ -445,7 +475,6 @@ public class SelectModulesScreen extends CoreScreenLayer {
     }
 
     /**
-     *
      * @return all modules that need to be downloaded to use the newest version of the specified module and all its
      * dependencies.
      */
@@ -483,7 +512,7 @@ public class SelectModulesScreen extends CoreScreenLayer {
 
     private void updateModuleInformation() {
 
-        Set<Name> filtered = ImmutableSet.of(ENGINE_MODULE_NAME, new Name("engine-test"));
+        Set<Name> filtered = ImmutableSet.of(TerasologyConstants.ENGINE_MODULE, new Name("engine-test"));
         for (RemoteModule remote : metaDownloader.getModules()) {
             ModuleSelectionInfo info = modulesLookup.get(remote.getId());
             if (!filtered.contains(remote.getId())) {
@@ -493,6 +522,8 @@ public class SelectModulesScreen extends CoreScreenLayer {
                     int pos = Collections.binarySearch(sortedModules, info, moduleInfoComparator);
                     if (pos < 0) {                             // not yet in the (sorted) list
                         sortedModules.add(-pos - 1, info);     // use "insertion point" to keep the list sorted
+                        allSortedModules.clear();
+                        allSortedModules.addAll(sortedModules);
                     }
                 }
                 info.setOnlineVersion(remote);
@@ -514,9 +545,12 @@ public class SelectModulesScreen extends CoreScreenLayer {
 
     @Override
     public void onClosed() {
+        // moduleConfig passes the module collection to the Create Game Screen.
         ModuleConfig moduleConfig = config.getDefaultModSelection();
         moduleConfig.clear();
-        sortedModules.stream().filter(info -> info.isSelected() && info.isExplicitSelection()).forEach(info ->
+        // Fetch all the selected/activated modules using allSortedModules
+        // instead of fetching only selected/activated modules from filtered collection of modules using sortedModules
+        allSortedModules.stream().filter(info -> info.isSelected() && info.isExplicitSelection()).forEach(info ->
                 moduleConfig.addModule(info.getMetadata().getId()));
         SimpleUri defaultGenerator = config.getWorldGeneration().getDefaultGenerator();
         ModuleSelectionInfo info = modulesLookup.get(defaultGenerator.getModuleName());
@@ -584,7 +618,7 @@ public class SelectModulesScreen extends CoreScreenLayer {
         private Map<URL, Path> urlToTargetMap;
         private ProgressListener progressListener;
 
-        public MultiFileDownloader(Map<URL, Path> urlToTargetMap, ProgressListener progressListener) {
+         MultiFileDownloader(Map<URL, Path> urlToTargetMap, ProgressListener progressListener) {
             this.urlToTargetMap = urlToTargetMap;
             this.progressListener = progressListener;
         }
@@ -594,7 +628,7 @@ public class SelectModulesScreen extends CoreScreenLayer {
             List<Path> downloadedFiles = new ArrayList<>();
             float fractionPerFile = (float) 1 / urlToTargetMap.size();
             int index = 0;
-            for (Map.Entry<URL, Path> entry: urlToTargetMap.entrySet()) {
+            for (Map.Entry<URL, Path> entry : urlToTargetMap.entrySet()) {
                 float progressWithFiles = fractionPerFile * index;
                 ProgressListener singleDownloadListener = fraction -> {
                     float totalPrecentDone = progressWithFiles + (fraction / urlToTargetMap.size());

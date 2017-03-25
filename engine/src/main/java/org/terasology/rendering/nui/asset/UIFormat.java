@@ -1,5 +1,5 @@
 /*
- * Copyright 2014 MovingBlocks
+ * Copyright 2016 MovingBlocks
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,14 +17,15 @@ package org.terasology.rendering.nui.asset;
 
 import com.google.common.base.Charsets;
 import com.google.common.collect.Lists;
-import com.google.gson.Gson;
-import com.google.gson.GsonBuilder;
-import com.google.gson.JsonArray;
-import com.google.gson.JsonDeserializationContext;
-import com.google.gson.JsonDeserializer;
+import com.google.gson.JsonParser;
 import com.google.gson.JsonElement;
-import com.google.gson.JsonObject;
+import com.google.gson.GsonBuilder;
+import com.google.gson.Gson;
+import com.google.gson.JsonDeserializer;
+import com.google.gson.JsonDeserializationContext;
 import com.google.gson.JsonParseException;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonArray;
 import com.google.gson.stream.JsonReader;
 
 import org.slf4j.Logger;
@@ -58,12 +59,12 @@ import java.lang.reflect.Modifier;
 import java.lang.reflect.Type;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map.Entry;
 import java.util.Set;
 
 /**
- * The UILoader handles loading UI widgets from json format files.
- *
+ * Handles loading UI widgets from json format files.
  */
 @RegisterAssetFileFormat
 public class UIFormat extends AbstractAssetFileFormat<UIData> {
@@ -81,6 +82,19 @@ public class UIFormat extends AbstractAssetFileFormat<UIData> {
 
     @Override
     public UIData load(ResourceUrn resourceUrn, List<AssetDataFile> inputs) throws IOException {
+        try (JsonReader reader = new JsonReader(new InputStreamReader(inputs.get(0).openStream(), Charsets.UTF_8))) {
+            reader.setLenient(true);
+            UIData data = load(new JsonParser().parse(reader));
+            data.setSource(inputs.get(0));
+            return data;
+        }
+    }
+
+    public UIData load(JsonElement element) throws IOException {
+        return load(element, null);
+    }
+
+    public UIData load(JsonElement element, Locale otherLocale) throws IOException {
         NUIManager nuiManager = CoreRegistry.get(NUIManager.class);
         TranslationSystem translationSystem = CoreRegistry.get(TranslationSystem.class);
         TypeSerializationLibrary library = new TypeSerializationLibrary(CoreRegistry.get(TypeSerializationLibrary.class));
@@ -88,34 +102,34 @@ public class UIFormat extends AbstractAssetFileFormat<UIData> {
         library.add(Border.class, new BorderTypeHandler());
 
         GsonBuilder gsonBuilder = new GsonBuilder()
-                .registerTypeAdapterFactory(new CaseInsensitiveEnumTypeAdapterFactory())
-                .registerTypeAdapter(UIData.class, new UIDataTypeAdapter())
-                .registerTypeHierarchyAdapter(UIWidget.class, new UIWidgetTypeAdapter(nuiManager));
+            .registerTypeAdapterFactory(new CaseInsensitiveEnumTypeAdapterFactory())
+            .registerTypeAdapter(UIData.class, new UIDataTypeAdapter())
+            .registerTypeHierarchyAdapter(UIWidget.class, new UIWidgetTypeAdapter(nuiManager));
         for (Class<?> handledType : library.getCoreTypes()) {
             gsonBuilder.registerTypeAdapter(handledType, new JsonTypeHandlerAdapter<>(library.getHandlerFor(handledType)));
         }
-        // override the String TypeAdapter from the serialization library
-        gsonBuilder.registerTypeAdapter(String.class, new I18nStringTypeAdapter(translationSystem));
-        Gson gson = gsonBuilder.create();
 
-        try (JsonReader reader = new JsonReader(new InputStreamReader(inputs.get(0).openStream(), Charsets.UTF_8))) {
-            reader.setLenient(true);
-            return gson.fromJson(reader, UIData.class);
-        }
+        // override the String TypeAdapter from the serialization library
+        gsonBuilder.registerTypeAdapter(String.class, new I18nStringTypeAdapter(translationSystem, otherLocale));
+        Gson gson = gsonBuilder.create();
+        return gson.fromJson(element, UIData.class);
     }
 
     private static final class I18nStringTypeAdapter implements JsonDeserializer<String> {
 
         private final TranslationSystem translationSystem;
+        private final Locale otherLocale;
 
-        public I18nStringTypeAdapter(TranslationSystem translationSystem) {
+        I18nStringTypeAdapter(TranslationSystem translationSystem, Locale otherLocale) {
             this.translationSystem = translationSystem;
+            this.otherLocale = otherLocale;
         }
 
         @Override
         public String deserialize(JsonElement json, Type typeOfT, JsonDeserializationContext context) throws JsonParseException {
             String text = json.getAsString();
-            return translationSystem.translate(text);
+            return otherLocale == null
+                ? translationSystem.translate(text) : translationSystem.translate(text, otherLocale);
         }
     }
 
@@ -143,7 +157,7 @@ public class UIFormat extends AbstractAssetFileFormat<UIData> {
 
         private NUIManager nuiManager;
 
-        public UIWidgetTypeAdapter(NUIManager nuiManager) {
+        UIWidgetTypeAdapter(NUIManager nuiManager) {
             this.nuiManager = nuiManager;
         }
 
@@ -224,7 +238,7 @@ public class UIFormat extends AbstractAssetFileFormat<UIData> {
                 UILayout<LayoutHint> layout = (UILayout<LayoutHint>) element;
 
                 Class<? extends LayoutHint> layoutHintType = (Class<? extends LayoutHint>)
-                        ReflectionUtil.getTypeParameter(elementMetadata.getType().getGenericSuperclass(), 0);
+                    ReflectionUtil.getTypeParameter(elementMetadata.getType().getGenericSuperclass(), 0);
                 if (jsonObject.has(CONTENTS_FIELD)) {
                     for (JsonElement child : jsonObject.getAsJsonArray(CONTENTS_FIELD)) {
                         UIWidget childElement = context.deserialize(child, UIWidget.class);
@@ -233,7 +247,7 @@ public class UIFormat extends AbstractAssetFileFormat<UIData> {
                             if (child.isJsonObject()) {
                                 JsonObject childObject = child.getAsJsonObject();
                                 if (layoutHintType != null && !layoutHintType.isInterface() && !Modifier.isAbstract(layoutHintType.getModifiers())
-                                        && childObject.has(LAYOUT_INFO_FIELD)) {
+                                    && childObject.has(LAYOUT_INFO_FIELD)) {
                                     hint = context.deserialize(childObject.get(LAYOUT_INFO_FIELD), layoutHintType);
                                 }
                             }

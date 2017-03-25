@@ -1,5 +1,5 @@
 /*
- * Copyright 2015 MovingBlocks
+ * Copyright 2016 MovingBlocks
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -25,12 +25,11 @@ import org.lwjgl.opengl.GL14;
 import org.lwjgl.opengl.GL20;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
 import java.nio.ByteBuffer;
 import java.nio.IntBuffer;
-
 import static org.lwjgl.opengl.EXTFramebufferObject.*;
 import static org.lwjgl.opengl.GL11.glGenTextures;
+import org.terasology.assets.ResourceUrn;
 
 /**
  * FBO - Frame Buffer Object
@@ -46,9 +45,12 @@ import static org.lwjgl.opengl.GL11.glGenTextures;
  * and unbinding of both the FrameBuffer as a whole or its attachments, and the FrameBuffer's proper disposal.
  */
 public final class FBO {
-
+    private static final boolean DEFAULT_COLOR_MASK = true;
+    private static final boolean DEFAULT_NORMAL_MASK = true;
+    private static final boolean DEFAULT_LIGHT_BUFFER_MASK = true;
     private static final Logger logger = LoggerFactory.getLogger(FBO.class);
 
+    // TODO: make accessors for these
     public int fboId;
     public int colorBufferTextureId;
     public int depthStencilTextureId;
@@ -57,6 +59,9 @@ public final class FBO {
     public int lightBufferTextureId;
 
     private final Dimensions dimensions;
+    private boolean writeToColorBuffer;
+    private boolean writeToNormalsBuffer;
+    private boolean writeToLightBuffer;
 
     private Status status;
 
@@ -77,6 +82,9 @@ public final class FBO {
     //                      should be through the static create() method.
     private FBO(int width, int height) {
         dimensions = new Dimensions(width, height);
+        writeToColorBuffer = DEFAULT_COLOR_MASK;
+        writeToNormalsBuffer = DEFAULT_NORMAL_MASK;
+        writeToLightBuffer = DEFAULT_LIGHT_BUFFER_MASK;
     }
 
     /**
@@ -89,6 +97,51 @@ public final class FBO {
         // necessary, it'd be easy to add a class variable tracking the currently bound FrameBuffer and the
         // associated checks.
         glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, fboId);
+    }
+
+    /**
+     * Once an FBO is bound, opengl commands will act on it, i.e. by drawing on it.
+     * Meanwhile shaders might output not just colors but additional per-pixel data. This method establishes on which
+     * of an FBOs attachments, subsequent opengl commands and shaders will draw on.
+     *
+     * @param renderToColorBuffer If True the color buffer is set as drawable. If false subsequent commands and shaders won't be able to draw on it.
+     * @param renderToNormalsBuffer If True the normal buffer is set as drawable. If false subsequent commands and shaders won't be able to draw on it.
+     * @param renderToLightBuffer If True the light buffer is set as drawable. If false subsequent commands and shaders won't be able to draw on it.
+     */
+    public void setRenderBufferMask(boolean renderToColorBuffer, boolean renderToNormalsBuffer, boolean renderToLightBuffer) {
+        if (this.writeToColorBuffer == renderToColorBuffer && this.writeToNormalsBuffer == renderToNormalsBuffer && this.writeToLightBuffer == renderToLightBuffer) {
+            return;
+        }
+
+        this.writeToColorBuffer = renderToColorBuffer;
+        this.writeToNormalsBuffer = renderToNormalsBuffer;
+        this.writeToLightBuffer = renderToLightBuffer;
+
+        int attachmentId = 0;
+
+        IntBuffer bufferIds = BufferUtils.createIntBuffer(3);
+
+        // TODO: change GL_COLOR_ATTACHMENT0_EXT + attachmentId into something like COLOR_BUFFER_ATTACHMENT,
+        // TODO: in turn set within the class or method
+        if (colorBufferTextureId != 0) {
+            if (this.writeToColorBuffer) {
+                bufferIds.put(GL_COLOR_ATTACHMENT0_EXT + attachmentId);
+            }
+            attachmentId++;
+        }
+        if (normalsBufferTextureId != 0) {
+            if (this.writeToNormalsBuffer) {
+                bufferIds.put(GL_COLOR_ATTACHMENT0_EXT + attachmentId);
+            }
+            attachmentId++;
+        }
+        if (lightBufferTextureId != 0 && this.writeToLightBuffer) { // compacted if block because Jenkins was complaining about it.
+            bufferIds.put(GL_COLOR_ATTACHMENT0_EXT + attachmentId);
+        }
+
+        bufferIds.flip();
+
+        GL20.glDrawBuffers(bufferIds);
     }
 
     /**
@@ -224,6 +277,24 @@ public final class FBO {
     /**
      * Creates an FBO, allocating the underlying FrameBuffer and the desired attachments on the GPU.
      *
+     * Check FBO create(String title, Dimensions dimensions, Type type ...) for more.
+     * @param config A FBOConfig object that stores information used for creating FBO.
+     * @return The resuting FBO object wrapping a FrameBuffer and its attachments. Use getStatus() before use to verify completeness.
+     */
+    public static FBO create(FBOConfig config) {
+        return FBO.create(config.getName(),
+                config.getDimensions(),
+                config.getType(),
+                config.hasDepthBuffer(),
+                config.hasNormalBuffer(),
+                config.hasLightBuffer(),
+                config.hasStencilBuffer());
+    }
+
+
+    /**
+     * Creates an FBO, allocating the underlying FrameBuffer and the desired attachments on the GPU.
+     *
      * Also checks the resulting FBO for completeness and logs errors and their error codes as necessary.
      * Callers must check the returned FBO's status (see getStatus()). Only FBO with a Status.COMPLETE should be used.
      *
@@ -236,7 +307,7 @@ public final class FBO {
      * If the creation process is successful (Status.COMPLETE) GPU memory has been allocated for the FrameBuffer and
      * its attachments. However, the content of the attachments is undefined.
      *
-     * @param title An identification string. It is currently used only to log creation errors and is not stored in the FBO.
+     * @param urn An identification string. It is currently used only to log creation errors and is not stored in the FBO.
      * @param dimensions A Dimensions object wrapping width and height of the FBO.
      * @param type Can be Type.DEFAULT, Type.HDR or Type.NO_COLOR
      * @param useDepthBuffer If true the FBO will have a 24 bit depth buffer attached to it. (GL_DEPTH_COMPONENT24, GL_UNSIGNED_INT, GL_NEAREST)
@@ -247,7 +318,7 @@ public final class FBO {
      *                         (GL_DEPTH24_STENCIL8_EXT, GL_UNSIGNED_INT_24_8_EXT, GL_NEAREST)
      * @return The resuting FBO object wrapping a FrameBuffer and its attachments. Use getStatus() before use to verify completeness.
      */
-    public static FBO create(String title, Dimensions dimensions, Type type,
+    public static FBO create(ResourceUrn urn, Dimensions dimensions, Type type,
                              boolean useDepthBuffer, boolean useNormalBuffer, boolean useLightBuffer, boolean useStencilBuffer) {
         FBO fbo = new FBO(dimensions.width, dimensions.height);
 
@@ -292,50 +363,50 @@ public final class FBO {
             GL20.glDrawBuffers(bufferIds);
         }
 
-        verifyCompleteness(title, type, fbo);
+        verifyCompleteness(urn, type, fbo);
         glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, 0);
 
         return fbo;
     }
 
-    private static void verifyCompleteness(String title, Type type, FBO fbo) {
+    private static void verifyCompleteness(ResourceUrn urn, Type type, FBO fbo) {
         int checkFB = glCheckFramebufferStatusEXT(GL_FRAMEBUFFER_EXT);
         switch (checkFB) {
             case GL_FRAMEBUFFER_COMPLETE_EXT:
                 fbo.setStatus(Status.COMPLETE);
                 break;
             case GL_FRAMEBUFFER_INCOMPLETE_ATTACHMENT_EXT:
-                logger.error("FrameBuffer: " + title
+                logger.error("FrameBuffer: " + urn
                         + ", has caused a GL_FRAMEBUFFER_INCOMPLETE_ATTACHMENT_EXT exception");
                 fbo.setStatus(Status.INCOMPLETE);
                 break;
             case GL_FRAMEBUFFER_INCOMPLETE_MISSING_ATTACHMENT_EXT:
-                logger.error("FrameBuffer: " + title
+                logger.error("FrameBuffer: " + urn
                         + ", has caused a GL_FRAMEBUFFER_INCOMPLETE_MISSING_ATTACHMENT_EXT exception");
                 fbo.setStatus(Status.INCOMPLETE);
                 break;
             case GL_FRAMEBUFFER_INCOMPLETE_DIMENSIONS_EXT:
-                logger.error("FrameBuffer: " + title
+                logger.error("FrameBuffer: " + urn
                         + ", has caused a GL_FRAMEBUFFER_INCOMPLETE_DIMENSIONS_EXT exception");
                 fbo.setStatus(Status.INCOMPLETE);
                 break;
             case GL_FRAMEBUFFER_INCOMPLETE_DRAW_BUFFER_EXT:
-                logger.error("FrameBuffer: " + title
+                logger.error("FrameBuffer: " + urn
                         + ", has caused a GL_FRAMEBUFFER_INCOMPLETE_DRAW_BUFFER_EXT exception");
                 fbo.setStatus(Status.INCOMPLETE);
                 break;
             case GL_FRAMEBUFFER_INCOMPLETE_FORMATS_EXT:
-                logger.error("FrameBuffer: " + title
+                logger.error("FrameBuffer: " + urn
                         + ", has caused a GL_FRAMEBUFFER_INCOMPLETE_FORMATS_EXT exception");
                 fbo.setStatus(Status.INCOMPLETE);
                 break;
             case GL_FRAMEBUFFER_UNSUPPORTED_EXT:
-                logger.error("FrameBuffer: " + title
+                logger.error("FrameBuffer: " + urn
                         + ", has caused a GL_FRAMEBUFFER_UNSUPPORTED_EXT exception");
                 fbo.setStatus(Status.INCOMPLETE);
                 break;
             case GL_FRAMEBUFFER_INCOMPLETE_READ_BUFFER_EXT:
-                logger.error("FrameBuffer: " + title
+                logger.error("FrameBuffer: " + urn
                         + ", has caused a GL_FRAMEBUFFER_INCOMPLETE_READ_BUFFER_EXT exception");
 
             /*
@@ -343,7 +414,7 @@ public final class FBO {
              * Code using NO_COLOR FBOs should check for this and -not use- the FBO if its status is DISPOSED
              */
                 if (type == Type.NO_COLOR) {
-                    logger.error("FrameBuffer: " + title
+                    logger.error("FrameBuffer: " + urn
                             + ", ...but the FBO.Type was NO_COLOR, ignoring this error and continuing without this FBO.");
                     fbo.dispose();
                 } else {
@@ -352,10 +423,24 @@ public final class FBO {
                 break;
 
             default:
-                logger.error("FBO '" + title + "' generated an unexpected reply from glCheckFramebufferStatusEXT: " + checkFB);
+                logger.error("FBO '" + urn + "' generated an unexpected reply from glCheckFramebufferStatusEXT: " + checkFB);
                 fbo.setStatus(Status.UNEXPECTED);
                 break;
         }
+    }
+
+    /**
+     * Returns the content of the color buffer from GPU memory as a ByteBuffer.
+     * @return a ByteBuffer or null
+     */
+    public ByteBuffer getColorBufferRawData() {
+        ByteBuffer buffer = BufferUtils.createByteBuffer(this.width() * this.height() * 4);
+
+        this.bindTexture();
+        GL11.glGetTexImage(GL11.GL_TEXTURE_2D, 0, GL11.GL_RGBA, GL11.GL_UNSIGNED_BYTE, buffer);
+        FBO.unbindTexture();
+
+        return buffer;
     }
 
     private static void createColorBuffer(FBO fbo, Dimensions dimensions, Type type) {
@@ -463,6 +548,15 @@ public final class FBO {
         }
 
         /**
+         * Copy constructor: construct a Dimensions instance with the dimensions of another.
+         *
+         * @param dimensions a Dimensions instance
+         */
+        public Dimensions(Dimensions dimensions) {
+            this(dimensions.width(), dimensions.height());
+        }
+
+        /**
          * Returns a new Dimensions object whose width and height have been divided by the divisor.
          * I.e. new Dimensions(20,10).dividedBy(2) returns a Dimensions(10,5) object.
          * @param divisor An integer.
@@ -470,6 +564,13 @@ public final class FBO {
          */
         public Dimensions dividedBy(int divisor) {
             return new Dimensions(width / divisor, height / divisor);
+        }
+
+
+        public Dimensions multiplyBy(float multiplier) {
+            int w = (int) (width * multiplier);
+            int h = (int) (height * multiplier);
+            return new Dimensions(w, h);
         }
 
         /**

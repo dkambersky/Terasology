@@ -8,7 +8,6 @@ You can run the game with `-homedir` to instead store all game data in the direc
 
 Report issues in the [support forum](http://forum.terasology.org/forum/support.20) or ask on [IRC](https://github.com/MovingBlocks/Terasology/wiki/Using-IRC) (`#terasology` on Freenode)
 
-
 ## Multiplayer
 
 To name yourself for a multiplayer game use Settings / Player. You can also pick a color, which will affect your placeholder monkey head player avatar, name in chat, and floating name tag.
@@ -33,9 +32,33 @@ After you have rights to manage *user* permissions you can grant other players s
 
 With *server* rights you can terminate the server gracefully via `shutdownServer` in the console. Otherwise you can kill a headless server with `CTRL-C` in a terminal / command prompt. Running headless with the .exe on Windows is not recommended as it "detaches" from its command prompt so you get no handy logging there or any way to issue a break to the process. If you cannot connect or get "op" you may have to terminate the process manually via Task Manager or comparable.
 
+### Configuring a server
+
 Finally to get modules configured for a headless server you either have to manually edit in a list of modules to the `defaultModSelection` section, and `defaultGenerator` for your chosen world, then delete the `saves` dir for the server and restart it. Start a single player world and look at the `config.cfg` that generates for hints.
 
-If you include the "CheatsForAll" module in config for a server then you can bypass a lot of the admin setup as every player will be able to use `cheat` commands, like `giveBlock` - however, keep in mind then everybody can cheat, this is really more for testing :-)
+It is also possible to provide a configuration file which overrides the default configuration on startup. This file can be passed using the `-overrideDefaultConfig=<pathToFile>`. Settings from this file will be copied to the generated `config.cfg`. After that changes in the `config.cfg` have priority, so further modifications in the override file will not modify the server values. It not required to pass an entire configuration file. A typical example would be:
+
+```
+{
+  "defaultModSelection": {
+    "modules": [
+      "MyModule",
+      "MyModule2"
+    ],
+    "defaultGameplayModuleName": "MyModule"
+  },
+  "worldGeneration": {
+    "worldTitle": "World Title",
+    "defaultSeed": "custom seed for the server",
+    "defaultGenerator": "MyModule:MyWorldgen"
+  },
+  "moduleConfigs": {},
+}
+```
+
+To set the gameplay module, the world generator and some basic server settings.
+
+If you include the "CheatsForAll" module in config for a server then you can bypass a lot of the admin setup as every player will be able to use `cheat` commands, like `give` - however, keep in mind then everybody can cheat, this is really more for testing :-)
 
 Alternatively you can run from source and supply parameters for game configuration. For instance here is how you would launch with ThroughoutTheAges active, our most complete setting. Keep in mind the module list may change any day, check in the game client what modules highlight with TTA selected to confirm.
 
@@ -43,6 +66,17 @@ Alternatively you can run from source and supply parameters for game configurati
 
 This will all become easier as the project and especially the launcher mature further :-)
 
+### Server via Docker
+
+If you're into Docker you can launch a container with a Terasology server already hooked up. 
+
+[qwc](https://github.com/qwc) maintains the related setup and info at https://github.com/qwc/docker-terasology (related: #1749)
+
+See all available images at https://hub.docker.com/r/qwick/terasology/tags/
+
+Example: `docker pull qwick/terasology:latest`
+
+The Docker server starts with no extra modules configured, you would have to go update the game server's config accordingly if desired.
 
 ## Controls
 
@@ -61,6 +95,7 @@ Note: Keys between the latest stable and latest develop build may differ.
 * [1..0] - Change the active toolbar slot
 * [I] - Toggle inventory screen
 * [B] - Show infinite block inventory (requires "BlockPicker" module active)
+* [C] - Show character screen for stats and equipment (requires "Equipment" module active)
 * [H] - Hide user interface
 * [T] - Toggle chat interface (effectively a mini-console that only does chat)
 * [Tab] - Auto-completion in the console
@@ -71,6 +106,7 @@ Note: Keys between the latest stable and latest develop build may differ.
 * [F2] - Toggle window focus and reveals a debug pane (only contains stuff if module(s) using it is enabled)
 * [F3] - Toggle debug mode and information
 * [F5] - Show behavior tree editor
+* [F10] - Show NUI editor
 * [F12] - Take screenshot (goes to /screenshots in game data dir)
 
 
@@ -91,21 +127,22 @@ Only works when the F3 debug mode is enabled (and may come and go)
 
 Press the `F1` or `grave` key (usually the \` key immediately above `tab`) to show the in-game console. Mostly everything is case insensitive. Copy paste is supported and up/down arrow will cycle through commands you've used before. Hitting `tab` with a partially typed command will auto-complete it (including abbreviated camel case like lS for listShapes). For partial commands with multiple completion candidates you can `tab` again to cycle through them.
 
-* help - Show in-game help (more thorough)
-* search [something] - searches for any command, prefab, or asset with "something" in its name, help text, etc
-* flight - just what it sounds like :)
-* ghost - no-clip mode (fly through anything)
-* hspeed - greatly increase your movement speed
-* hjump - jump really high. Almost like flying - but it isn't. Just jump good.
-* restoreSpeed - normalizes speed (both horizontal and vertical)
-* help giveBlock - Shows detailed help on the "giveBlock" command
-* giveBlock Water - Gives 16 water blocks
-* giveBlock Stone Stair 99 - Gives you 99 stone stair blocks
-* giveBlock Chest - Gives you a Chest block you can place, activate ('E'), put stuff in, break, pick up, place elsewhere, find same stuff in it!
-* giveBlock TNT - Gives you 16 TNT blocks you can place and activate ('E') to blow up
-* listBlocks - Lists all actively used blocks (have been loaded for the world)
-* listFreeShapeBlocks - Lists all blocks that can be requested in any known shape
-* listShapes - Lists the available shapes
-* healthMax - Fully restores the player's health
-* showHealth - Shows the player's health
-* teleport 42 42 42 - Warps the player to x = 42, y = 42, z = 42
+* `help` - Show in-game help (more thorough)
+* `search [something]` - searches for any command, prefab, or asset with "something" in its name, help text, etc
+* `flight` - just what it sounds like :)
+* `ghost` - no-clip mode (fly through anything)
+* `hspeed` - greatly increase your movement speed
+* `hjump` - jump really high. Almost like flying - but it isn't. Just jump good.
+* `restoreSpeed` - normalizes speed (both horizontal and vertical)
+* `help give` - Shows detailed help on the "give" command
+* `give Water` - Gives 16 water blocks (default quantity when not specified)
+* `give Stone 99 Stair` - Gives you 99 stone stair blocks
+* `give Chest` - Gives you a Chest block you can place, activate ('E'), put stuff in, break, pick up, place elsewhere, find same stuff in it!
+* `give TNT` - Gives you 16 TNT blocks you can place and activate ('E') to blow up
+* `bulkGiveBlock cake` - Gives you a stack of blocks for every block with the name "cake" in it! Find good block series with `search`
+* `listBlocks` - Lists all actively used blocks (have been loaded for the world)
+* `listFreeShapeBlocks` - Lists all blocks that can be requested in any known shape
+* `listShapes` - Lists the available shapes
+* `healthMax` - Fully restores the player's health
+* `showHealth` - Shows the player's health
+* `teleport 42 42 42` - Warps the player to x = 42, y = 42, z = 42

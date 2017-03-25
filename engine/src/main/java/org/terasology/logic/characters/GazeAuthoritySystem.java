@@ -1,5 +1,5 @@
 /*
- * Copyright 2015 MovingBlocks
+ * Copyright 2016 MovingBlocks
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,6 +15,9 @@
  */
 package org.terasology.logic.characters;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.terasology.config.Config;
 import org.terasology.entitySystem.entity.EntityBuilder;
 import org.terasology.entitySystem.entity.EntityManager;
 import org.terasology.entitySystem.entity.EntityRef;
@@ -34,15 +37,20 @@ import org.terasology.registry.In;
  */
 @RegisterSystem(RegisterMode.AUTHORITY)
 public class GazeAuthoritySystem extends BaseComponentSystem {
+    private static final Logger logger = LoggerFactory.getLogger(GazeAuthoritySystem.class);
     @In
     EntityManager entityManager;
+    @In
+    private Config config;
 
     @ReceiveEvent
-    public void ensureGazeContainerEntitiesCreated(OnActivatedComponent event, EntityRef entityRef, GazeMountPointComponent gazeMountPointComponent, LocationComponent locationComponent) {
+    public void ensureGazeContainerEntitiesCreated(OnActivatedComponent event, EntityRef entityRef, GazeMountPointComponent gazeMountPointComponent,
+            LocationComponent locationComponent) {
         if (!gazeMountPointComponent.gazeEntity.exists()) {
             gazeMountPointComponent.gazeEntity = createGazeEntity();
             entityRef.saveComponent(gazeMountPointComponent);
         }
+        gazeMountPointComponent.translate.y = config.getPlayer().getEyeHeight();
         Location.attachChild(entityRef, gazeMountPointComponent.gazeEntity, gazeMountPointComponent.translate, new Quat4f(Quat4f.IDENTITY));
     }
 

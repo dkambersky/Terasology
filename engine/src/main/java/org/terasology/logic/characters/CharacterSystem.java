@@ -34,6 +34,7 @@ import org.terasology.logic.characters.events.ActivationRequestDenied;
 import org.terasology.logic.characters.events.AttackEvent;
 import org.terasology.logic.characters.events.AttackRequest;
 import org.terasology.logic.characters.events.DeathEvent;
+import org.terasology.logic.characters.events.OnItemUseEvent;
 import org.terasology.logic.characters.interactions.InteractionUtil;
 import org.terasology.logic.common.ActivateEvent;
 import org.terasology.logic.common.DisplayNameComponent;
@@ -84,32 +85,29 @@ public class CharacterSystem extends BaseComponentSystem implements UpdateSubscr
 
     @ReceiveEvent(components = {CharacterComponent.class}, netFilter = RegisterMode.CLIENT)
     public void onAttackRequest(AttackButton event, EntityRef entity, CharacterHeldItemComponent characterHeldItemComponent) {
-        if (!event.isDown() || time.getGameTimeInMs() < characterHeldItemComponent.nextItemUseTime) {
+        if (!event.isDown()) {
             return;
         }
 
-        EntityRef selectedItemEntity = characterHeldItemComponent.selectedItem;
-
-        entity.send(new AttackRequest(selectedItemEntity));
-
-        long currentTime = time.getGameTimeInMs();
-        // TODO: send this data back to the server so that other players can visualize this attack
-        // TODO: extract this into an event someplace so that this code does not have to exist both here and in LocalPlayerSystem
-        characterHeldItemComponent.lastItemUsedTime = currentTime;
-        characterHeldItemComponent.nextItemUseTime = currentTime;
-        ItemComponent itemComponent = selectedItemEntity.getComponent(ItemComponent.class);
-        if (itemComponent != null) {
-            characterHeldItemComponent.nextItemUseTime += itemComponent.cooldownTime;
+        boolean attackRequestIsValid;
+        if (networkSystem.getMode().isAuthority()) {
+            // Let the AttackRequest handler trigger the OnItemUseEvent if this is a local client
+            attackRequestIsValid = true;
         } else {
-            characterHeldItemComponent.nextItemUseTime += 200;
+            OnItemUseEvent onItemUseEvent = new OnItemUseEvent();
+            entity.send(onItemUseEvent);
+            attackRequestIsValid = !onItemUseEvent.isConsumed();
         }
-        entity.saveComponent(characterHeldItemComponent);
-        event.consume();
+
+        if (attackRequestIsValid) {
+            EntityRef selectedItemEntity = characterHeldItemComponent.selectedItem;
+            entity.send(new AttackRequest(selectedItemEntity));
+            event.consume();
+        }
     }
 
-
     @ReceiveEvent(components = LocationComponent.class, netFilter = RegisterMode.AUTHORITY)
-    public void onAttackRequest(AttackRequest event, EntityRef character) {
+    public void onAttackRequest(AttackRequest event, EntityRef character, CharacterComponent characterComponent) {
         // if an item is used,  make sure this entity is allowed to attack with it
         if (event.getItem().exists()) {
             if (!character.equals(event.getItem().getOwner())) {
@@ -117,17 +115,49 @@ public class CharacterSystem extends BaseComponentSystem implements UpdateSubscr
             }
         }
 
-        CharacterComponent characterComponent = character.getComponent(CharacterComponent.class);
-        EntityRef gazeEntity = GazeAuthoritySystem.getGazeEntityForCharacter(character);
-        LocationComponent gazeLocation = gazeEntity.getComponent(LocationComponent.class);
-        Vector3f direction = gazeLocation.getWorldDirection();
-        Vector3f originPos = gazeLocation.getWorldPosition();
+        OnItemUseEvent onItemUseEvent = new OnItemUseEvent();
+        character.send(onItemUseEvent);
+        if (!onItemUseEvent.isConsumed()) {
+            EntityRef gazeEntity = GazeAuthoritySystem.getGazeEntityForCharacter(character);
+            LocationComponent gazeLocation = gazeEntity.getComponent(LocationComponent.class);
+            Vector3f direction = gazeLocation.getWorldDirection();
+            Vector3f originPos = gazeLocation.getWorldPosition();
 
-        HitResult result = physics.rayTrace(originPos, direction, characterComponent.interactionRange, Sets.newHashSet(character), DEFAULTPHYSICSFILTER);
+            HitResult result = physics.rayTrace(originPos, direction, characterComponent.interactionRange, Sets.newHashSet(character), DEFAULTPHYSICSFILTER);
 
-        if (result.isHit()) {
-            result.getEntity().send(new AttackEvent(character, event.getItem()));
+            if (result.isHit()) {
+                result.getEntity().send(new AttackEvent(character, event.getItem()));
+            }
         }
+    }
+
+    @ReceiveEvent(components = {CharacterComponent.class})
+    public void onItemUse(OnItemUseEvent event, EntityRef entity, CharacterHeldItemComponent characterHeldItemComponent) {
+        long currentTime = time.getGameTimeInMs();
+        if (characterHeldItemComponent.nextItemUseTime > currentTime) {
+            // this character is not yet ready to use another item,  they are still cooling down from last use
+            event.consume();
+            return;
+        }
+
+        EntityRef selectedItemEntity = characterHeldItemComponent.selectedItem;
+
+        characterHeldItemComponent.lastItemUsedTime = currentTime;
+        characterHeldItemComponent.nextItemUseTime = currentTime;
+        ItemComponent itemComponent = selectedItemEntity.getComponent(ItemComponent.class);
+
+        // Add the cooldown time for the next use of this item.
+        if (itemComponent != null) {
+            // Send out this event so other systems can alter the cooldown time.
+            AffectItemUseCooldownTimeEvent affectItemUseCooldownTimeEvent
+                    = new AffectItemUseCooldownTimeEvent(itemComponent.cooldownTime);
+            entity.send(affectItemUseCooldownTimeEvent);
+            characterHeldItemComponent.nextItemUseTime += affectItemUseCooldownTimeEvent.getResultValue();
+        } else {
+            characterHeldItemComponent.nextItemUseTime += 200;
+        }
+
+        entity.saveComponent(characterHeldItemComponent);
     }
 
     @ReceiveEvent(priority = EventPriority.PRIORITY_TRIVIAL, netFilter = RegisterMode.AUTHORITY)
@@ -140,14 +170,17 @@ public class CharacterSystem extends BaseComponentSystem implements UpdateSubscr
         entityRef.send(new DestroyEvent(event.getInstigator(), event.getDirectCause(), EngineDamageTypes.PHYSICAL.get()));
     }
 
-
     @ReceiveEvent(components = {CharacterComponent.class, LocationComponent.class}, netFilter = RegisterMode.AUTHORITY)
     public void onActivationRequest(ActivationRequest event, EntityRef character) {
         if (isPredictionOfEventCorrect(character, event)) {
-            if (event.getUsedOwnedEntity().exists()) {
-                event.getUsedOwnedEntity().send(new ActivateEvent(event));
-            } else {
-                event.getTarget().send(new ActivateEvent(event));
+            OnItemUseEvent onItemUseEvent = new OnItemUseEvent();
+            event.getInstigator().send(onItemUseEvent);
+            if (!onItemUseEvent.isConsumed()) {
+                if (event.getUsedOwnedEntity().exists()) {
+                    event.getUsedOwnedEntity().send(new ActivateEvent(event));
+                } else {
+                    event.getTarget().send(new ActivateEvent(event));
+                }
             }
         } else {
             character.send(new ActivationRequestDenied(event.getActivationId()));

@@ -21,7 +21,6 @@ import com.google.common.collect.Queues;
 import com.google.common.collect.Sets;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.terasology.utilities.Assets;
 import org.terasology.assets.ResourceUrn;
 import org.terasology.context.Context;
 import org.terasology.engine.Time;
@@ -61,6 +60,7 @@ import org.terasology.rendering.nui.skin.UIStyle;
 import org.terasology.rendering.nui.widgets.UILabel;
 import org.terasology.rendering.nui.widgets.UITooltip;
 import org.terasology.rendering.opengl.FrameBufferObject;
+import org.terasology.utilities.Assets;
 
 import java.util.Deque;
 import java.util.Iterator;
@@ -179,7 +179,7 @@ public class CanvasImpl implements CanvasControl {
         }
 
         mouseOverRegions.stream().filter(region -> !newMouseOverRegions.contains(region)).forEach(region ->
-                region.listener.onMouseLeave());
+            region.listener.onMouseLeave());
 
         if (clickedRegion != null && !interactionRegions.contains(clickedRegion)) {
             clickedRegion = null;
@@ -208,7 +208,7 @@ public class CanvasImpl implements CanvasControl {
     @Override
     public boolean processMouseClick(MouseInput button, Vector2i pos) {
         boolean possibleDoubleClick = lastClickPosition.gridDistance(pos) < MAX_DOUBLE_CLICK_DISTANCE && lastClickButton == button
-                && time.getGameTimeInMs() - lastClickTime < DOUBLE_CLICK_TIME;
+            && time.getGameTimeInMs() - lastClickTime < DOUBLE_CLICK_TIME;
         lastClickPosition.set(pos);
         lastClickButton = button;
         lastClickTime = time.getGameTimeInMs();
@@ -430,7 +430,7 @@ public class CanvasImpl implements CanvasControl {
         UIStyle style = getCurrentStyle();
         if (style.isTextShadowed()) {
             drawTextRawShadowed(text, style.getFont(), style.getTextColor(), style.getTextShadowColor(), style.isTextUnderlined(), region, style.getHorizontalTextAlignment(),
-                    style.getVerticalTextAlignment());
+                style.getVerticalTextAlignment());
         } else {
             drawTextRaw(text, style.getFont(), style.getTextColor(), style.isTextUnderlined(), region, style.getHorizontalTextAlignment(), style.getVerticalTextAlignment());
         }
@@ -585,8 +585,8 @@ public class CanvasImpl implements CanvasControl {
     @Override
     public void drawTextureRaw(TextureRegion texture, Rect2i region, ScaleMode mode, int ux, int uy, int uw, int uh) {
         drawTextureRaw(texture, region, mode,
-                (float) ux / texture.getWidth(), (float) uy / texture.getHeight(),
-                (float) uw / texture.getWidth(), (float) uh / texture.getHeight());
+            (float) ux / texture.getWidth(), (float) uy / texture.getHeight(),
+            (float) uw / texture.getWidth(), (float) uh / texture.getHeight());
     }
 
     @Override
@@ -618,8 +618,8 @@ public class CanvasImpl implements CanvasControl {
     @Override
     public void drawTextureRawBordered(TextureRegion texture, Rect2i region, Border border, boolean tile, int ux, int uy, int uw, int uh) {
         drawTextureRawBordered(texture, region, border, tile,
-                (float) ux / texture.getWidth(), (float) uy / texture.getHeight(),
-                (float) uw / texture.getWidth(), (float) uh / texture.getHeight());
+            (float) ux / texture.getWidth(), (float) uy / texture.getHeight(),
+            (float) uw / texture.getWidth(), (float) uh / texture.getHeight());
     }
 
     @Override
@@ -718,25 +718,25 @@ public class CanvasImpl implements CanvasControl {
 
     @Override
     public void drawLine(int startX, int startY, int endX, int endY, Color color) {
-        int sx = startX + state.drawRegion.minX();
-        int sy = startY + state.drawRegion.minY();
-        int ex = state.drawRegion.minX() + endX;
-        int ey = state.drawRegion.minY() + endY;
+        Line.LineCoordinates lc = Line.getLineCoordinates(startX, startY, endX, endY, state.drawRegion, state.cropRegion);
 
-        if (state.drawOnTop) {
-            drawOnTopOperations.add(new DrawLineOperation(sx, sy, ex, ey, color));
-        } else {
-            renderer.drawLine(sx, sy, ex, ey, color);
+        if (lc != null) {
+            if (state.drawOnTop) {
+                drawOnTopOperations.add(new DrawLineOperation(lc.getStart().x, lc.getStart().y, lc.getEnd().x, lc.getEnd().y, color));
+            } else {
+                renderer.drawLine(lc.getStart().x, lc.getStart().y, lc.getEnd().x, lc.getEnd().y, color);
+            }
         }
     }
 
     @Override
     public void drawFilledRectangle(Rect2i region, Color color) {
-        drawTexture(whiteTexture, region, color);
+        drawTextureRaw(whiteTexture, region, color, ScaleMode.STRETCH);
+
     }
 
     private Rect2i relativeToAbsolute(Rect2i region) {
-        return Rect2i.createFromMinAndSize(region.minX() + state.drawRegion.minX(), region.minY() + state.drawRegion.minY(), region.width(), region.height());
+        return Line.relativeToAbsolute(region, state.drawRegion);
     }
 
     /**
@@ -757,11 +757,11 @@ public class CanvasImpl implements CanvasControl {
 
         private boolean drawOnTop;
 
-        public CanvasState(CanvasState previous, Rect2i drawRegion) {
+        CanvasState(CanvasState previous, Rect2i drawRegion) {
             this(previous, drawRegion, (previous != null) ? previous.cropRegion : drawRegion);
         }
 
-        public CanvasState(CanvasState previous, Rect2i drawRegion, Rect2i cropRegion) {
+        CanvasState(CanvasState previous, Rect2i drawRegion, Rect2i cropRegion) {
             if (previous != null) {
                 this.skin = previous.skin;
                 this.family = previous.family;
@@ -797,7 +797,7 @@ public class CanvasImpl implements CanvasControl {
         private CanvasState previousState;
         private boolean disposed;
 
-        public SubRegionImpl(Rect2i region, boolean crop) {
+        SubRegionImpl(Rect2i region, boolean crop) {
             previousState = state;
 
             int left = TeraMath.addClampAtMax(region.minX(), state.drawRegion.minX());
@@ -859,7 +859,7 @@ public class CanvasImpl implements CanvasControl {
         public UIWidget element;
         public UIWidget tooltipOverride;
 
-        public InteractionRegion(Rect2i region, Vector2i offset, InteractionListener listener, UIWidget element, UIWidget tooltipOverride) {
+        InteractionRegion(Rect2i region, Vector2i offset, InteractionListener listener, UIWidget element, UIWidget tooltipOverride) {
             this.listener = listener;
             this.region = region;
             this.offset = offset;
@@ -1027,7 +1027,7 @@ public class CanvasImpl implements CanvasControl {
         private final UIWidget currentElement;
         private final UIWidget tooltipOverride;
 
-        public DrawInteractionRegionOperation(Rect2i region, Vector2i offset, InteractionListener listener, UIWidget currentElement, UIWidget tooltipOverride) {
+        DrawInteractionRegionOperation(Rect2i region, Vector2i offset, InteractionListener listener, UIWidget currentElement, UIWidget tooltipOverride) {
             this.region = region;
             this.listener = listener;
             this.offset = offset;

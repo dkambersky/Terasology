@@ -22,12 +22,13 @@ import org.terasology.math.TeraMath;
  */
 public enum ScreenshotSize {
 
-    DOUBLE_SIZE("Double Size", 2.0F),
-    NORMAL_SIZE("Normal Size", 1.0F),
-    HALF_SIZE("Half Size", 0.5F),
-    QUARTER_SIZE("Quarter Size", 0.25F),
+    DOUBLE_SIZE("${engine:menu#screenshot-size-double}", 2.0F),
+    NORMAL_SIZE("${engine:menu#screenshot-size-normal}", 1.0F),
+    HALF_SIZE("${engine:menu#screenshot-size-half}", 0.5F),
+    QUARTER_SIZE("${engine:menu#screenshot-size-quarter}", 0.25F),
     HD720("720p", 1280, 720),
-    HD1080("1080p", 1920, 1080);
+    HD1080("1080p", 1920, 1080),
+    UHD_1("4K UHD", 3840, 2160); // see: https://en.wikipedia.org/wiki/4K_resolution
 
     private final String displayName;
 
@@ -36,12 +37,12 @@ public enum ScreenshotSize {
     private int width;
     private int height;
 
-    private ScreenshotSize(String displayName, float multiplier) {
+    ScreenshotSize(String displayName, float multiplier) {
         this.displayName = displayName;
         this.multiplier = multiplier;
     }
 
-    private ScreenshotSize(String displayName, int width, int height) {
+    ScreenshotSize(String displayName, int width, int height) {
         this.displayName = displayName;
         this.width = width;
         this.height = height;

@@ -1,5 +1,5 @@
 /*
- * Copyright 2013 MovingBlocks
+ * Copyright 2017 MovingBlocks
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -32,13 +32,12 @@ import org.terasology.world.WorldProvider;
  *
  */
 public class ShaderParametersSky extends ShaderParametersBase {
-
     @Range(min = 1.0f, max = 8192.0f)
     private float sunExponent = 512.0f;
     @Range(min = 1.0f, max = 8192.0f)
     private float moonExponent = 256.0f;
     @Range(min = 0.0f, max = 10.0f)
-    private float skyDaylightBrightness = 1.3f;
+    private float skyDaylightBrightness = 0.6f;
     @Range(min = 0.0f, max = 10.0f)
     private float skyNightBrightness = 1.0f;
 
@@ -67,6 +66,8 @@ public class ShaderParametersSky extends ShaderParametersBase {
     public void applyParameters(Material program) {
         super.applyParameters(program);
 
+        // TODO: move to node and/or material?
+        // TODO: take advantage of Texture.subscribeToDisposal(Runnable) to reobtain the asset only if necessary
         int texId = 0;
         GL13.glActiveTexture(GL13.GL_TEXTURE0 + texId);
         GL11.glBindTexture(GL11.GL_TEXTURE_2D, Assets.getTexture("engine:sky90").get().getId());
@@ -78,6 +79,7 @@ public class ShaderParametersSky extends ShaderParametersBase {
         BackdropProvider backdropProvider = CoreRegistry.get(BackdropProvider.class);
         WorldProvider worldProvider = CoreRegistry.get(WorldProvider.class);
 
+        // TODO: move the rest to material?
         if (worldProvider != null && backdropProvider != null) {
             program.setFloat("colorExp", backdropProvider.getColorExp(), true);
 

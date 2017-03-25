@@ -1,5 +1,5 @@
 /*
- * Copyright 2013 MovingBlocks
+ * Copyright 2017 MovingBlocks
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,170 +15,405 @@
  */
 package org.terasology.rendering.world;
 
-import org.terasology.utilities.Assets;
+import org.terasology.rendering.dag.nodes.AmbientOcclusionNode;
+import org.terasology.rendering.dag.nodes.ApplyDeferredLightingNode;
+import org.terasology.rendering.dag.nodes.BlurredAmbientOcclusionNode;
+import org.terasology.rendering.dag.nodes.CopyImageToScreenNode;
+import org.terasology.rendering.dag.nodes.DeferredMainLightNode;
+import org.terasology.rendering.dag.nodes.DownSamplerForExposureNode;
+import org.terasology.rendering.dag.nodes.HighPassNode;
+import org.terasology.rendering.dag.nodes.LateBlurNode;
+import org.terasology.rendering.dag.nodes.UpdateExposureNode;
+import org.terasology.rendering.openvrprovider.OpenVRProvider;
 import org.terasology.config.Config;
 import org.terasology.config.RenderingConfig;
-import org.terasology.config.RenderingDebugConfig;
 import org.terasology.context.Context;
-import org.terasology.engine.ComponentSystemManager;
 import org.terasology.engine.subsystem.lwjgl.GLBufferPool;
-import org.terasology.entitySystem.entity.EntityManager;
-import org.terasology.entitySystem.entity.EntityRef;
-import org.terasology.entitySystem.systems.RenderSystem;
-import org.terasology.logic.location.LocationComponent;
-import org.terasology.logic.players.LocalPlayer;
+import org.terasology.engine.subsystem.lwjgl.LwjglGraphics;
 import org.terasology.logic.players.LocalPlayerSystem;
 import org.terasology.math.TeraMath;
-import org.terasology.math.geom.Matrix4f;
 import org.terasology.math.geom.Vector3f;
 import org.terasology.math.geom.Vector3i;
-import org.terasology.monitoring.Activity;
-import org.terasology.monitoring.PerformanceMonitor;
-import org.terasology.registry.CoreRegistry;
-import org.terasology.rendering.AABBRenderer;
-import org.terasology.rendering.RenderHelper;
 import org.terasology.rendering.ShaderManager;
 import org.terasology.rendering.assets.material.Material;
-import org.terasology.rendering.assets.shader.ShaderProgramFeature;
 import org.terasology.rendering.backdrop.BackdropProvider;
-import org.terasology.rendering.backdrop.BackdropRenderer;
 import org.terasology.rendering.cameras.Camera;
-import org.terasology.rendering.cameras.OculusStereoCamera;
-import org.terasology.rendering.cameras.OrthographicCamera;
+import org.terasology.rendering.cameras.OpenVRStereoCamera;
 import org.terasology.rendering.cameras.PerspectiveCamera;
-import org.terasology.rendering.logic.LightComponent;
-import org.terasology.rendering.opengl.GraphicState;
-import org.terasology.rendering.opengl.FrameBuffersManager;
-import org.terasology.rendering.opengl.PostProcessor;
-import org.terasology.rendering.primitives.ChunkMesh;
-import org.terasology.rendering.primitives.LightGeometryHelper;
+import org.terasology.rendering.cameras.SubmersibleCamera;
+import org.terasology.rendering.dag.Node;
+import org.terasology.rendering.dag.NodeFactory;
+import org.terasology.rendering.dag.RenderGraph;
+import org.terasology.rendering.dag.RenderPipelineTask;
+import org.terasology.rendering.dag.RenderTaskListGenerator;
+import org.terasology.rendering.dag.nodes.BackdropNode;
+import org.terasology.rendering.dag.nodes.BloomBlurNode;
+import org.terasology.rendering.dag.nodes.BufferClearingNode;
+import org.terasology.rendering.dag.nodes.AlphaRejectBlocksNode;
+import org.terasology.rendering.dag.nodes.OpaqueBlocksNode;
+import org.terasology.rendering.dag.nodes.RefractiveReflectiveBlocksNode;
+import org.terasology.rendering.dag.nodes.FinalPostProcessingNode;
+import org.terasology.rendering.dag.nodes.CopyImageToHMDNode;
+import org.terasology.rendering.dag.nodes.FirstPersonViewNode;
+import org.terasology.rendering.dag.nodes.InitialPostProcessingNode;
+import org.terasology.rendering.dag.nodes.DeferredPointLightsNode;
+import org.terasology.rendering.dag.nodes.LightShaftsNode;
+import org.terasology.rendering.dag.nodes.OpaqueObjectsNode;
+import org.terasology.rendering.dag.nodes.OutlineNode;
+import org.terasology.rendering.dag.nodes.OverlaysNode;
+import org.terasology.rendering.dag.nodes.PrePostCompositeNode;
+import org.terasology.rendering.dag.nodes.BackdropReflectionNode;
+import org.terasology.rendering.dag.nodes.ShadowMapNode;
+import org.terasology.rendering.dag.nodes.SimpleBlendMaterialsNode;
+import org.terasology.rendering.dag.nodes.HazeNode;
+import org.terasology.rendering.dag.nodes.ToneMappingNode;
+import org.terasology.rendering.dag.nodes.WorldReflectionNode;
+import org.terasology.rendering.opengl.FBO;
+import org.terasology.rendering.opengl.FBOConfig;
+import org.terasology.rendering.opengl.ScreenGrabber;
+import org.terasology.rendering.opengl.fbms.DisplayResolutionDependentFBOs;
+import org.terasology.rendering.opengl.fbms.ShadowMapResolutionDependentFBOs;
+import org.terasology.rendering.opengl.fbms.ImmutableFBOs;
 import org.terasology.rendering.world.viewDistance.ViewDistance;
+import org.terasology.utilities.Assets;
 import org.terasology.world.WorldProvider;
-import org.terasology.world.chunks.ChunkConstants;
 import org.terasology.world.chunks.ChunkProvider;
-import org.terasology.world.chunks.RenderableChunk;
+
+import java.util.List;
+
+import static org.lwjgl.opengl.GL11.GL_COLOR_BUFFER_BIT;
+import static org.lwjgl.opengl.GL11.GL_DEPTH_BUFFER_BIT;
+import static org.lwjgl.opengl.GL11.GL_STENCIL_BUFFER_BIT;
+import static org.lwjgl.opengl.GL11.GL_CULL_FACE;
+import static org.lwjgl.opengl.GL11.glDisable;
+import static org.terasology.rendering.dag.NodeFactory.DELAY_INIT;
+import static org.terasology.rendering.dag.nodes.DownSamplerForExposureNode.*;
+import static org.terasology.rendering.dag.nodes.LateBlurNode.FIRST_LATE_BLUR_FBO;
+import static org.terasology.rendering.dag.nodes.LateBlurNode.SECOND_LATE_BLUR_FBO;
+import static org.terasology.rendering.dag.nodes.ToneMappingNode.TONE_MAPPED_FBO;
+import static org.terasology.rendering.opengl.ScalingFactors.FULL_SCALE;
+import static org.terasology.rendering.opengl.ScalingFactors.HALF_SCALE;
+import static org.terasology.rendering.opengl.ScalingFactors.QUARTER_SCALE;
+import static org.terasology.rendering.opengl.ScalingFactors.ONE_8TH_SCALE;
+import static org.terasology.rendering.opengl.ScalingFactors.ONE_16TH_SCALE;
+import static org.terasology.rendering.opengl.ScalingFactors.ONE_32TH_SCALE;
+import static org.terasology.rendering.opengl.fbms.DisplayResolutionDependentFBOs.READONLY_GBUFFER;
 
 /**
+ * Renders the 3D world, including background, overlays and first person/in hand objects. 2D UI elements are dealt with elsewhere.
+ *
+ * This implementation includes support for OpenVR, through which HTC Vive and Oculus Rift is supported.
+ *
+ * This implementation works closely with a number of support objects, in particular:
+ *
+ * TODO: update this section to include new, relevant objects
+ * - a RenderableWorld instance, providing acceleration structures caching blocks requiring different rendering treatments<br/>
  */
 public final class WorldRendererImpl implements WorldRenderer {
 
-    private static final int SHADOW_FRUSTUM_BOUNDS = 500;
-
+    private boolean isFirstRenderingStageForCurrentFrame;
+    private final RenderQueuesHelper renderQueues;
     private final Context context;
-
-    private final BackdropRenderer backdropRenderer;
     private final BackdropProvider backdropProvider;
     private final WorldProvider worldProvider;
     private final RenderableWorld renderableWorld;
+    private final ShaderManager shaderManager;
+    private final SubmersibleCamera playerCamera;
 
-    private LocalPlayer player;
+    // TODO: @In
+    private final OpenVRProvider vrProvider;
 
-    private final Camera playerCamera;
-    private final Camera shadowMapCamera = new OrthographicCamera(-SHADOW_FRUSTUM_BOUNDS, SHADOW_FRUSTUM_BOUNDS, SHADOW_FRUSTUM_BOUNDS, -SHADOW_FRUSTUM_BOUNDS);
+    private float timeSmoothedMainLightIntensity;
+    private RenderingStage currentRenderingStage;
 
-    // TODO: Review this? (What are we doing with a component not attached to an entity?)
-    private LightComponent mainDirectionalLight = new LightComponent();
-    private float smoothedPlayerSunlightValue;
-
-    private final RenderQueuesHelper renderQueues;
-    private WorldRenderingStage currentRenderingStage;
-    private boolean isFirstRenderingStageForCurrentFrame;
-
-    private Material chunkShader;
-    private Material lightGeometryShader;
-    // private Material simpleShader; // in use by the currently commented out light stencil pass
-    private Material shadowMapShader;
-
-    private float tick;
+    private float millisecondsSinceRenderingStart;
     private float secondsSinceLastFrame;
-
     private int statChunkMeshEmpty;
     private int statChunkNotReady;
     private int statRenderedTriangles;
 
-    public enum ChunkRenderMode {
-        DEFAULT,
-        REFLECTION,
-        SHADOW_MAP,
-        Z_PRE_PASS
-    }
-
-    private ComponentSystemManager systemManager;
-
-    private final Config config;
     private final RenderingConfig renderingConfig;
-    private final RenderingDebugConfig renderingDebugConfig;
 
-    private FrameBuffersManager buffersManager;
-    private GraphicState graphicState;
-    private PostProcessor postProcessor;
+    private RenderTaskListGenerator renderTaskListGenerator;
+    private boolean requestedTaskListRefresh;
+    private List<RenderPipelineTask> renderPipelineTaskList;
+    private ShadowMapNode shadowMapNode;
 
+    private ImmutableFBOs immutableFBOs;
+    private DisplayResolutionDependentFBOs displayResolutionDependentFBOs;
+    private ShadowMapResolutionDependentFBOs shadowMapResolutionDependentFBOs;
+
+    /**
+     * Instantiates a WorldRenderer implementation.
+     *
+     * This particular implementation works as deferred shader. The scene is rendered multiple times per frame
+     * in a number of separate passes (each stored in GPU buffers) and the passes are combined throughout the
+     * rendering pipeline to calculate per-pixel lighting and other effects.
+     *
+     * Transparencies are handled through alpha rejection (i.e. ground plants) and alpha-based blending.
+     * An exception to this is water, which is handled separately to allow for reflections and refractions, if enabled.
+     *
+     * By the time it is fully instantiated this implementation is already connected to all the support objects
+     * it requires and is ready to render via the render(RenderingStage) method.
+     *
+     * @param context a context object, to obtain instances of classes such as the rendering config.
+     * @param bufferPool a GLBufferPool, to be passed to the RenderableWorld instance used by this implementation.
+     */
     public WorldRendererImpl(Context context, GLBufferPool bufferPool) {
         this.context = context;
         this.worldProvider = context.get(WorldProvider.class);
         this.backdropProvider = context.get(BackdropProvider.class);
-        this.backdropRenderer = context.get(BackdropRenderer.class);
-        this.config = context.get(Config.class);
-        this.renderingConfig = config.getRendering();
-        this.renderingDebugConfig = renderingConfig.getDebug();
-        this.systemManager = context.get(ComponentSystemManager.class);
-
-        // TODO: won't need localPlayerSystem here once camera is in the ES proper
-        if (renderingConfig.isOculusVrSupport()) {
-            playerCamera = new OculusStereoCamera();
-            currentRenderingStage = WorldRenderingStage.LEFT_EYE;
-
+        this.renderingConfig = context.get(Config.class).getRendering();
+        this.shaderManager = context.get(ShaderManager.class);
+        vrProvider = OpenVRProvider.getInstance();
+        if (renderingConfig.isVrSupport()) {
+            context.put(OpenVRProvider.class, vrProvider);
+            // If vrProvider.init() returns false, this means that we are unable to initialize VR hardware for some
+            // reason (for example, no HMD is connected). In that case, even though the configuration requests
+            // vrSupport, we fall back on rendering to the main display. The reason for init failure can be read from
+            // the log.
+            if (vrProvider.init()) {
+                playerCamera = new OpenVRStereoCamera(vrProvider, worldProvider, renderingConfig);
+                currentRenderingStage = RenderingStage.LEFT_EYE;
+            } else {
+                playerCamera = new PerspectiveCamera(worldProvider, renderingConfig);
+                currentRenderingStage = RenderingStage.MONO;
+            }
         } else {
-            playerCamera = new PerspectiveCamera(renderingConfig.getCameraSettings());
-            currentRenderingStage = WorldRenderingStage.MONO;
+            playerCamera = new PerspectiveCamera(worldProvider, renderingConfig);
+            currentRenderingStage = RenderingStage.MONO;
         }
+        // TODO: won't need localPlayerSystem here once camera is in the ES proper
         LocalPlayerSystem localPlayerSystem = context.get(LocalPlayerSystem.class);
         localPlayerSystem.setPlayerCamera(playerCamera);
 
-        initMainDirectionalLight();
-
-        ChunkProvider chunkProvider = context.get(ChunkProvider.class);
-
-        renderableWorld = new RenderableWorldImpl(worldProvider, chunkProvider, bufferPool, playerCamera, shadowMapCamera);
+        renderableWorld = new RenderableWorldImpl(worldProvider, context.get(ChunkProvider.class), bufferPool, playerCamera);
         renderQueues = renderableWorld.getRenderQueues();
 
         initRenderingSupport();
     }
 
-    private void initMainDirectionalLight() {
-        mainDirectionalLight.lightType = LightComponent.LightType.DIRECTIONAL;
-        mainDirectionalLight.lightColorAmbient = new Vector3f(1.0f, 1.0f, 1.0f);
-        mainDirectionalLight.lightColorDiffuse = new Vector3f(1.0f, 1.0f, 1.0f);
-        mainDirectionalLight.lightAmbientIntensity = 1.0f;
-        mainDirectionalLight.lightDiffuseIntensity = 2.0f;
-        mainDirectionalLight.lightSpecularIntensity = 0.0f;
-    }
-
     private void initRenderingSupport() {
-        buffersManager = new FrameBuffersManager();
-        context.put(FrameBuffersManager.class, buffersManager);
+        context.put(ScreenGrabber.class, new ScreenGrabber(context));
 
-        graphicState = new GraphicState(buffersManager);
-        postProcessor = new PostProcessor(buffersManager, graphicState);
-        context.put(PostProcessor.class, postProcessor);
+        immutableFBOs = new ImmutableFBOs();
+        displayResolutionDependentFBOs = new DisplayResolutionDependentFBOs(context.get(Config.class).getRendering(), context.get(ScreenGrabber.class));
+        shadowMapResolutionDependentFBOs = new ShadowMapResolutionDependentFBOs();
 
-        buffersManager.setGraphicState(graphicState);
-        buffersManager.setPostProcessor(postProcessor);
-        buffersManager.initialize();
+        context.put(DisplayResolutionDependentFBOs.class, displayResolutionDependentFBOs);
+        context.put(ImmutableFBOs.class, immutableFBOs);
+        context.put(ShadowMapResolutionDependentFBOs.class, shadowMapResolutionDependentFBOs);
 
-        context.get(ShaderManager.class).initShaders();
-        postProcessor.initializeMaterials();
-        initMaterials();
+        shaderManager.initShaders();
+
+        context.put(WorldRenderer.class, this);
+        context.put(RenderQueuesHelper.class, renderQueues);
+        context.put(RenderableWorld.class, renderableWorld);
+        initRenderGraph();
     }
 
-    private void initMaterials() {
-        chunkShader = getMaterial("engine:prog.chunk");
-        lightGeometryShader = getMaterial("engine:prog.lightGeometryPass");
-        //simpleShader = getMaterial("engine:prog.simple");  // in use by the currently commented out light stencil pass
-        shadowMapShader = getMaterial("engine:prog.shadowMap");
+    private void initRenderGraph() {
+        // FIXME: init pipeline without specifying them as a field in this class
+        NodeFactory nodeFactory = new NodeFactory(context);
+        RenderGraph renderGraph = new RenderGraph();
+
+        // ShadowMap generation
+        FBOConfig shadowMapConfig =
+                new FBOConfig(ShadowMapNode.SHADOW_MAP, FBO.Type.NO_COLOR).useDepthBuffer();
+        BufferClearingNode shadowMapClearingNode = nodeFactory.createInstance(BufferClearingNode.class, DELAY_INIT);
+        shadowMapClearingNode.initialise(shadowMapConfig, shadowMapResolutionDependentFBOs, GL_DEPTH_BUFFER_BIT);
+        renderGraph.addNode(shadowMapClearingNode, "shadowMapClearingNode");
+
+        shadowMapNode = nodeFactory.createInstance(ShadowMapNode.class);
+        renderGraph.addNode(shadowMapNode, "shadowMapNode");
+
+        // (i.e. water) reflection generation
+        FBOConfig reflectedBufferConfig =
+                new FBOConfig(BackdropReflectionNode.REFLECTED, HALF_SCALE, FBO.Type.DEFAULT).useDepthBuffer();
+        BufferClearingNode reflectedBufferClearingNode = nodeFactory.createInstance(BufferClearingNode.class, DELAY_INIT);
+        reflectedBufferClearingNode.initialise(reflectedBufferConfig, displayResolutionDependentFBOs, GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+        renderGraph.addNode(reflectedBufferClearingNode, "reflectedBufferClearingNode"); // TODO: verify this is necessary
+
+        Node reflectedBackdropNode = nodeFactory.createInstance(BackdropReflectionNode.class);
+        renderGraph.addNode(reflectedBackdropNode, "reflectedBackdropNode");
+
+        Node worldReflectionNode = nodeFactory.createInstance(WorldReflectionNode.class);
+        renderGraph.addNode(worldReflectionNode, "worldReflectionNode");
+
+        // sky rendering
+        FBOConfig reflectedRefractedBufferConfig = new FBOConfig(RefractiveReflectiveBlocksNode.REFRACTIVE_REFLECTIVE, FULL_SCALE, FBO.Type.HDR).useNormalBuffer();
+        BufferClearingNode reflectedRefractedClearingNode = nodeFactory.createInstance(BufferClearingNode.class, DELAY_INIT);
+        reflectedRefractedClearingNode.initialise(reflectedRefractedBufferConfig, displayResolutionDependentFBOs, GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+        renderGraph.addNode(reflectedRefractedClearingNode, "reflectedRefractedClearingNode");
+
+        FBOConfig sceneOpaqueFboConfig = displayResolutionDependentFBOs.getFboConfig(READONLY_GBUFFER);
+
+        BufferClearingNode readBufferClearingNode = nodeFactory.createInstance(BufferClearingNode.class, DELAY_INIT);
+        readBufferClearingNode.initialise(sceneOpaqueFboConfig, displayResolutionDependentFBOs,
+                GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
+        renderGraph.addNode(readBufferClearingNode, "readBufferClearingNode");
+
+        Node backdropNode = nodeFactory.createInstance(BackdropNode.class);
+        renderGraph.addNode(backdropNode, "backdropNode");
+
+        String aLabel = "hazeIntermediateNode";
+        FBOConfig hazeIntermediateConfig = new FBOConfig(HazeNode.INTERMEDIATE_HAZE, ONE_16TH_SCALE, FBO.Type.DEFAULT);
+        HazeNode hazeIntermediateNode = nodeFactory.createInstance(HazeNode.class, DELAY_INIT);
+        hazeIntermediateNode.initialise(sceneOpaqueFboConfig, hazeIntermediateConfig, aLabel);
+        renderGraph.addNode(hazeIntermediateNode, aLabel);
+
+        aLabel = "hazeFinalNode";
+        FBOConfig hazeFinalConfig = new FBOConfig(HazeNode.FINAL_HAZE, ONE_32TH_SCALE, FBO.Type.DEFAULT);
+        HazeNode hazeFinalNode = nodeFactory.createInstance(HazeNode.class, DELAY_INIT);
+        hazeFinalNode.initialise(hazeIntermediateConfig, hazeFinalConfig, aLabel);
+        renderGraph.addNode(hazeFinalNode, aLabel);
+
+        // world rendering
+        Node opaqueObjectsNode = nodeFactory.createInstance(OpaqueObjectsNode.class);
+        renderGraph.addNode(opaqueObjectsNode, "opaqueObjectsNode");
+
+        Node opaqueBlocksNode = nodeFactory.createInstance(OpaqueBlocksNode.class);
+        renderGraph.addNode(opaqueBlocksNode, "opaqueBlocksNode");
+
+        Node alphaRejectBlocksNode = nodeFactory.createInstance(AlphaRejectBlocksNode.class);
+        renderGraph.addNode(alphaRejectBlocksNode, "alphaRejectBlocksNode");
+
+        Node overlaysNode = nodeFactory.createInstance(OverlaysNode.class);
+        renderGraph.addNode(overlaysNode, "overlaysNode");
+
+        // TODO: remove this, including associated method in the RenderSystem interface
+        Node firstPersonViewNode = nodeFactory.createInstance(FirstPersonViewNode.class);
+        renderGraph.addNode(firstPersonViewNode, "firstPersonViewNode");
+
+        // lighting
+        Node deferredPointLightsNode = nodeFactory.createInstance(DeferredPointLightsNode.class);
+        renderGraph.addNode(deferredPointLightsNode, "DeferredPointLightsNode");
+
+        Node deferredMainLightNode = nodeFactory.createInstance(DeferredMainLightNode.class);
+        renderGraph.addNode(deferredMainLightNode, "deferredMainLightNode");
+
+        Node applyDeferredLightingNode = nodeFactory.createInstance(ApplyDeferredLightingNode.class);
+        renderGraph.addNode(applyDeferredLightingNode, "applyDeferredLightingNode");
+
+        Node chunksRefractiveReflectiveNode = nodeFactory.createInstance(RefractiveReflectiveBlocksNode.class);
+        renderGraph.addNode(chunksRefractiveReflectiveNode, "chunksRefractiveReflectiveNode");
+        // TODO: consider having a none-rendering node for FBO.attachDepthBufferTo() methods
+
+        // 3d-based decorations (versus purely 2d, post-production effects)
+        Node outlineNode = nodeFactory.createInstance(OutlineNode.class);
+        renderGraph.addNode(outlineNode, "outlineNode");
+
+        Node ambientOcclusionNode = nodeFactory.createInstance(AmbientOcclusionNode.class);
+        renderGraph.addNode(ambientOcclusionNode, "ambientOcclusionNode");
+
+        Node blurredAmbientOcclusionNode = nodeFactory.createInstance(BlurredAmbientOcclusionNode.class);
+        renderGraph.addNode(blurredAmbientOcclusionNode, "blurredAmbientOcclusionNode");
+
+        // Pre-post-processing, just one more interaction with 3D data (semi-transparent objects, in SimpleBlendMaterialsNode)
+        // and then it's 2D post-processing all the way to the image shown on the display.
+        Node prePostCompositeNode = nodeFactory.createInstance(PrePostCompositeNode.class);
+        renderGraph.addNode(prePostCompositeNode, "prePostCompositeNode");
+
+        Node simpleBlendMaterialsNode = nodeFactory.createInstance(SimpleBlendMaterialsNode.class);
+        renderGraph.addNode(simpleBlendMaterialsNode, "simpleBlendMaterialsNode");
+
+        // Post-Processing proper: tone mapping, light shafts, bloom and blur passes
+        Node lightShaftsNode = nodeFactory.createInstance(LightShaftsNode.class);
+        renderGraph.addNode(lightShaftsNode, "lightShaftsNode");
+
+        Node initialPostProcessingNode = nodeFactory.createInstance(InitialPostProcessingNode.class);
+        renderGraph.addNode(initialPostProcessingNode, "initialPostProcessingNode");
+
+        aLabel = "downSampling_gBuffer_to_16x16px_forExposure";
+        DownSamplerForExposureNode exposureDownSamplerTo16pixels = nodeFactory.createInstance(DownSamplerForExposureNode.class, DELAY_INIT);
+        exposureDownSamplerTo16pixels.initialise(sceneOpaqueFboConfig, displayResolutionDependentFBOs, FBO_16X16_CONFIG, immutableFBOs, aLabel);
+        renderGraph.addNode(exposureDownSamplerTo16pixels, aLabel);
+
+        aLabel = "downSampling_16x16px_to_8x8px_forExposure";
+        DownSamplerForExposureNode exposureDownSamplerTo8pixels = nodeFactory.createInstance(DownSamplerForExposureNode.class, DELAY_INIT);
+        exposureDownSamplerTo8pixels.initialise(FBO_16X16_CONFIG, immutableFBOs, FBO_8X8_CONFIG, immutableFBOs, aLabel);
+        renderGraph.addNode(exposureDownSamplerTo8pixels, aLabel);
+
+        aLabel = "downSampling_8x8px_to_4x4px_forExposure";
+        DownSamplerForExposureNode exposureDownSamplerTo4pixels = nodeFactory.createInstance(DownSamplerForExposureNode.class, DELAY_INIT);
+        exposureDownSamplerTo4pixels.initialise(FBO_8X8_CONFIG, immutableFBOs, FBO_4X4_CONFIG, immutableFBOs, aLabel);
+        renderGraph.addNode(exposureDownSamplerTo4pixels, aLabel);
+
+        aLabel = "downSampling_4x4px_to_2x2px_forExposure";
+        DownSamplerForExposureNode exposureDownSamplerTo2pixels = nodeFactory.createInstance(DownSamplerForExposureNode.class, DELAY_INIT);
+        exposureDownSamplerTo2pixels.initialise(FBO_4X4_CONFIG, immutableFBOs, FBO_2X2_CONFIG, immutableFBOs, aLabel);
+        renderGraph.addNode(exposureDownSamplerTo2pixels, aLabel);
+
+        aLabel = "downSampling_2x2px_to_1x1px_forExposure";
+        DownSamplerForExposureNode exposureDownSamplerTo1pixel = nodeFactory.createInstance(DownSamplerForExposureNode.class, DELAY_INIT);
+        exposureDownSamplerTo1pixel.initialise(FBO_2X2_CONFIG, immutableFBOs, FBO_1X1_CONFIG, immutableFBOs, aLabel);
+        renderGraph.addNode(exposureDownSamplerTo1pixel, aLabel);
+
+        Node updateExposureNode = nodeFactory.createInstance(UpdateExposureNode.class);
+        renderGraph.addNode(updateExposureNode, "updateExposureNode");
+
+        Node toneMappingNode = nodeFactory.createInstance(ToneMappingNode.class);
+        renderGraph.addNode(toneMappingNode, "toneMappingNode");
+
+        // Bloom Effect: one high-pass filter and three blur passes
+        Node highPassNode = nodeFactory.createInstance(HighPassNode.class);
+        renderGraph.addNode(highPassNode, "highPassNode");
+
+        FBOConfig halfScaleBloomConfig = new FBOConfig(BloomBlurNode.HALF_SCALE_FBO, HALF_SCALE, FBO.Type.DEFAULT);
+        FBOConfig quarterScaleBloomConfig = new FBOConfig(BloomBlurNode.QUARTER_SCALE_FBO, QUARTER_SCALE, FBO.Type.DEFAULT);
+        FBOConfig one8thScaleBloomConfig = new FBOConfig(BloomBlurNode.ONE_8TH_SCALE_FBO, ONE_8TH_SCALE, FBO.Type.DEFAULT);
+
+        aLabel = "halfScaleBlurredBloom";
+        BloomBlurNode halfScaleBlurredBloom = nodeFactory.createInstance(BloomBlurNode.class, DELAY_INIT);
+        halfScaleBlurredBloom.initialise(HighPassNode.HIGH_PASS_FBO_CONFIG, halfScaleBloomConfig, aLabel);
+        renderGraph.addNode(halfScaleBlurredBloom, aLabel);
+
+        aLabel = "quarterScaleBlurredBloom";
+        BloomBlurNode quarterScaleBlurredBloom = nodeFactory.createInstance(BloomBlurNode.class, DELAY_INIT);
+        quarterScaleBlurredBloom.initialise(halfScaleBloomConfig, quarterScaleBloomConfig, aLabel);
+        renderGraph.addNode(quarterScaleBlurredBloom, aLabel);
+
+        aLabel = "one8thScaleBlurredBloom";
+        BloomBlurNode one8thScaleBlurredBloom = nodeFactory.createInstance(BloomBlurNode.class, DELAY_INIT);
+        one8thScaleBlurredBloom.initialise(quarterScaleBloomConfig, one8thScaleBloomConfig, aLabel);
+        renderGraph.addNode(one8thScaleBlurredBloom, aLabel);
+
+        // Late Blur nodes: assisting Motion Blur and Depth-of-Field effects - TODO: place next line closer to ToneMappingNode eventually.
+        FBOConfig toneMappedConfig = new FBOConfig(TONE_MAPPED_FBO, FULL_SCALE, FBO.Type.HDR);
+        FBOConfig firstLateBlurConfig = new FBOConfig(FIRST_LATE_BLUR_FBO, HALF_SCALE, FBO.Type.DEFAULT);
+        FBOConfig secondLateBlurConfig = new FBOConfig(SECOND_LATE_BLUR_FBO, HALF_SCALE, FBO.Type.DEFAULT);
+
+        aLabel = "firstLateBlurNode";
+        LateBlurNode firstLateBlurNode = nodeFactory.createInstance(LateBlurNode.class, DELAY_INIT);
+        firstLateBlurNode.initialise(toneMappedConfig, firstLateBlurConfig, aLabel);
+        renderGraph.addNode(firstLateBlurNode, aLabel);
+
+        aLabel = "secondLateBlurNode";
+        LateBlurNode secondLateBlurNode = nodeFactory.createInstance(LateBlurNode.class, DELAY_INIT);
+        secondLateBlurNode.initialise(firstLateBlurConfig, secondLateBlurConfig, aLabel);
+        renderGraph.addNode(secondLateBlurNode, aLabel);
+
+        Node finalPostProcessingNode = nodeFactory.createInstance(FinalPostProcessingNode.class);
+        renderGraph.addNode(finalPostProcessingNode, "finalPostProcessingNode");
+
+        Node copyToVRFrameBufferNode = nodeFactory.createInstance(CopyImageToHMDNode.class);
+        renderGraph.addNode(copyToVRFrameBufferNode, "copyToVRFrameBufferNode");
+
+        Node copyImageToScreenNode = nodeFactory.createInstance(CopyImageToScreenNode.class);
+        renderGraph.addNode(copyImageToScreenNode, "copyImageToScreenNode");
+
+        renderTaskListGenerator = new RenderTaskListGenerator();
+        List<Node> orderedNodes = renderGraph.getNodesInTopologicalOrder();
+        renderPipelineTaskList = renderTaskListGenerator.generateFrom(orderedNodes);
     }
 
-    private Material getMaterial(String assetId) {
+    @Override
+    public float getSecondsSinceLastFrame() {
+        return secondsSinceLastFrame;
+    }
+
+    @Override
+    public Material getMaterial(String assetId) {
         return Assets.getMaterial(assetId).orElseThrow(() ->
                 new RuntimeException("Failed to resolve required asset: '" + assetId + "'"));
     }
@@ -193,9 +428,6 @@ public final class WorldRendererImpl implements WorldRenderer {
         renderableWorld.onChunkUnloaded(pos);
     }
 
-    /**
-     * @return true if pregeneration is complete
-     */
     @Override
     public boolean pregenerateChunks() {
         return renderableWorld.pregenerateChunks();
@@ -206,37 +438,6 @@ public final class WorldRendererImpl implements WorldRenderer {
         secondsSinceLastFrame += deltaInSeconds;
     }
 
-    public void positionShadowMapCamera() {
-        // Shadows are rendered around the player so...
-        Vector3f lightPosition = new Vector3f(playerCamera.getPosition().x, 0.0f, playerCamera.getPosition().z);
-
-        // Project the shadowMapCamera position to light space and make sure it is only moved in texel steps (avoids flickering when moving the shadowMapCamera)
-        float texelSize = 1.0f / renderingConfig.getShadowMapResolution();
-        texelSize *= 2.0f;
-
-        shadowMapCamera.getViewProjectionMatrix().transformPoint(lightPosition);
-        lightPosition.set(TeraMath.fastFloor(lightPosition.x / texelSize) * texelSize, 0.0f, TeraMath.fastFloor(lightPosition.z / texelSize) * texelSize);
-        shadowMapCamera.getInverseViewProjectionMatrix().transformPoint(lightPosition);
-
-        // ... we position our new shadowMapCamera at the position of the player and move it
-        // quite a bit into the direction of the sun (our main light).
-
-        // Make sure the sun does not move too often since it causes massive shadow flickering (from hell to the max)!
-        float stepSize = 50f;
-        Vector3f sunDirection = backdropProvider.getQuantizedSunDirection(stepSize);
-
-        Vector3f sunPosition = new Vector3f(sunDirection);
-        sunPosition.scale(256.0f + 64.0f);
-        lightPosition.add(sunPosition);
-
-        shadowMapCamera.getPosition().set(lightPosition);
-
-        // and adjust it to look from the sun direction into the direction of our player
-        Vector3f negSunDirection = new Vector3f(sunDirection);
-        negSunDirection.scale(-1.0f);
-
-        shadowMapCamera.getViewingDirection().set(negSunDirection);
-    }
 
     private void resetStats() {
         statChunkMeshEmpty = 0;
@@ -244,11 +445,22 @@ public final class WorldRendererImpl implements WorldRenderer {
         statRenderedTriangles = 0;
     }
 
-    private void preRenderUpdate(WorldRenderingStage renderingStage) {
+    @Override
+    public void increaseTrianglesCount(int increase) {
+        statRenderedTriangles += increase;
+    }
+
+    @Override
+    public void increaseNotReadyChunkCount(int increase) {
+        statChunkNotReady += increase;
+    }
+
+    private void preRenderUpdate(RenderingStage renderingStage) {
         resetStats();
 
         currentRenderingStage = renderingStage;
-        if (currentRenderingStage == WorldRenderingStage.MONO || currentRenderingStage == WorldRenderingStage.LEFT_EYE) {
+
+        if ((currentRenderingStage == RenderingStage.MONO) || (currentRenderingStage == RenderingStage.LEFT_EYE)) {
             isFirstRenderingStageForCurrentFrame = true;
         } else {
             isFirstRenderingStageForCurrentFrame = false;
@@ -257,470 +469,100 @@ public final class WorldRendererImpl implements WorldRenderer {
         // this is done to execute this code block only once per frame
         // instead of once per eye in a stereo setup.
         if (isFirstRenderingStageForCurrentFrame) {
-            tick += secondsSinceLastFrame * 1000;  // Updates the tick variable that animation is based on.
-            smoothedPlayerSunlightValue = TeraMath.lerp(smoothedPlayerSunlightValue, getSunlightValue(), secondsSinceLastFrame);
+            timeSmoothedMainLightIntensity = TeraMath.lerp(timeSmoothedMainLightIntensity, getMainLightIntensityAt(playerCamera.getPosition()), secondsSinceLastFrame);
 
             playerCamera.update(secondsSinceLastFrame);
-            positionShadowMapCamera();
-            shadowMapCamera.update(secondsSinceLastFrame);
 
             renderableWorld.update();
             renderableWorld.generateVBOs();
             secondsSinceLastFrame = 0;
 
-            buffersManager.preRenderUpdate();
+            displayResolutionDependentFBOs.update();
+
+            millisecondsSinceRenderingStart += secondsSinceLastFrame * 1000;  // updates the variable animations are based on.
         }
 
-        if (currentRenderingStage != WorldRenderingStage.MONO) {
+        if (currentRenderingStage != RenderingStage.MONO) {
             playerCamera.updateFrustum();
         }
 
         // this line needs to be here as deep down it relies on the camera's frustrum, updated just above.
         renderableWorld.queueVisibleChunks(isFirstRenderingStageForCurrentFrame);
+
+        if (requestedTaskListRefresh) {
+            renderTaskListGenerator.refresh();
+            requestedTaskListRefresh = false;
+        }
     }
 
     /**
-     * Renders the world.
+     * TODO: update javadocs
+     * This method triggers the execution of the rendering pipeline and, eventually, sends the output to the display
+     * or to a file, when grabbing a screenshot.
+     *
+     * In this particular implementation this method can be called once per frame, when rendering to a standard display,
+     * or twice, each time with a different rendering stage, when rendering to the head mounted display.
+     *
+     * PerformanceMonitor.startActivity/endActivity statements are used in this method and in those it executes,
+     * to provide statistics regarding the ongoing rendering and its individual steps (i.e. rendering shadows,
+     * reflections, 2D filters...).
+     *
+     * @param renderingStage "MONO" for standard rendering and "LEFT_EYE" or "RIGHT_EYE" for stereoscopic displays.
      */
     @Override
-    public void render(WorldRenderingStage renderingStage) {
+    public void render(RenderingStage renderingStage) {
         preRenderUpdate(renderingStage);
 
-        renderShadowMap();          // into shadowMap buffer
-        renderWorldReflection();    // into sceneReflect buffer
+        // TODO: Add a method here to check wireframe configuration and regenerate "renderPipelineTask" accordingly.
 
-        graphicState.enableWireframeIf(renderingDebugConfig.isWireframe());
-        graphicState.initialClearing();
+        // The following line re-establish OpenGL defaults, so that the nodes/tasks can rely on them.
+        // A place where Terasology overrides the defaults is LwjglGraphics.initOpenGLParams(), but
+        // there could be potentially other places, i.e. in the UI code. In the rendering engine we'd like
+        // to eventually rely on a default OpenGL state.
+        glDisable(GL_CULL_FACE);
+        //glDisable(GL_DEPTH_TEST);
+        //glDisable(GL_NORMALIZE); // currently keeping these as they are, until we find where they are used.
+        //glDepthFunc(GL_LESS);
 
-        graphicState.preRenderSetupSceneOpaque();
-        renderBackdrop();   // into sceneOpaque and skyBands[0-1] buffers
+        renderPipelineTaskList.forEach(RenderPipelineTask::execute);
 
-        try (Activity ignored = PerformanceMonitor.startActivity("Render World")) {
-            renderObjectsOpaque();      //
-            renderChunksOpaque();       //
-            renderChunksAlphaReject();  //  all into sceneOpaque buffer
-            renderOverlays();           //
-            renderFirstPersonView();    //
-
-            graphicState.postRenderCleanupSceneOpaque();
-
-            renderLightGeometry();              // into sceneOpaque buffer
-            renderChunksRefractiveReflective(); // into sceneReflectiveRefractive buffer
-        }
-
-        graphicState.disableWireframeIf(renderingDebugConfig.isWireframe());
-
-        PerformanceMonitor.startActivity("Pre-post composite");
-
-        postProcessor.generateOutline();                      // into outline buffer
-        postProcessor.generateAmbientOcclusionPasses();     // into ssao and ssaoBlurred buffers
-        postProcessor.generatePrePostComposite();              // into sceneOpaquePingPong, then make it the new sceneOpaque buffer
-        PerformanceMonitor.endActivity();
-
-        renderSimpleBlendMaterials();                       // into sceneOpaque buffer
-
-        PerformanceMonitor.startActivity("Post-Processing");
-        postProcessor.generateLightShafts();                // into lightShafts buffer
-
-        // Initial Post-Processing: chromatic aberration, light shafts, 1/8th resolution bloom, vignette
-        postProcessor.initialPostProcessing();              // into scenePrePost buffer
-
-        // Post-Processing proper: tone mapping, bloom and blur passes // TODO: verify if the order of operations around here is correct
-        postProcessor.downsampleSceneAndUpdateExposure();   // downSampledScene buffer used only to update exposure value
-        postProcessor.generateToneMappedScene();            // into sceneToneMapped buffer
-        postProcessor.generateBloomPasses();                // into sceneHighPass and sceneBloom[0-2]
-        postProcessor.generateBlurPasses();                 // into sceneBlur[0-1]
-
-        // Final Post-Processing: depth-of-field blur, motion blur, film grain, grading, OculusVR distortion
-        postProcessor.finalPostProcessing(renderingStage);  // to screen normally, to a buffer if a screenshot is being taken
-        PerformanceMonitor.endActivity();
+        // this line re-establish Terasology defaults, so that the rest of the application can rely on them.
+        LwjglGraphics.initOpenGLParams();
 
         playerCamera.updatePrevViewProjectionMatrix();
     }
 
-    private void renderShadowMap() {
-        if (renderingConfig.isDynamicShadows() && isFirstRenderingStageForCurrentFrame) {
-            PerformanceMonitor.startActivity("Render World (Shadow Map)");
-
-            graphicState.preRenderSetupSceneShadowMap();
-            shadowMapCamera.lookThrough();
-
-            while (renderQueues.chunksOpaqueShadow.size() > 0) {
-                renderChunk(renderQueues.chunksOpaqueShadow.poll(), ChunkMesh.RenderPhase.OPAQUE, shadowMapCamera, ChunkRenderMode.SHADOW_MAP);
-            }
-
-            for (RenderSystem renderer : systemManager.iterateRenderSubscribers()) {
-                renderer.renderShadows();
-            }
-
-            playerCamera.lookThrough(); // not strictly needed: just defensive programming here.
-            graphicState.postRenderCleanupSceneShadowMap();
-
-            PerformanceMonitor.endActivity();
-        }
+    @Override
+    public void requestTaskListRefresh() {
+        requestedTaskListRefresh = true;
     }
 
-    public void renderWorldReflection() {
-        PerformanceMonitor.startActivity("Render World (Reflection)");
-
-        graphicState.preRenderSetupReflectedScene();
-        playerCamera.setReflected(true);
-
-        playerCamera.lookThroughNormalized(); // we don't want the reflected scene to be bobbing or moving with the player
-        backdropRenderer.render(playerCamera);
-        playerCamera.lookThrough();
-
-        chunkShader.activateFeature(ShaderProgramFeature.FEATURE_USE_FORWARD_LIGHTING);
-
-        if (renderingConfig.isReflectiveWater()) {
-            while (renderQueues.chunksOpaqueReflection.size() > 0) {
-                renderChunk(renderQueues.chunksOpaqueReflection.poll(), ChunkMesh.RenderPhase.OPAQUE, playerCamera, ChunkRenderMode.REFLECTION);
-            }
-        }
-
-        chunkShader.deactivateFeature(ShaderProgramFeature.FEATURE_USE_FORWARD_LIGHTING);
-
-        playerCamera.setReflected(false);
-        graphicState.postRenderCleanupReflectedScene();
-
-        PerformanceMonitor.endActivity();
-    }
-
-    private void renderBackdrop() {
-        PerformanceMonitor.startActivity("Render Sky");
-        playerCamera.lookThroughNormalized();
-        graphicState.preRenderSetupBackdrop();
-
-        backdropRenderer.render(playerCamera);
-        graphicState.midRenderChangesBackdrop();
-        postProcessor.generateSkyBands();
-
-        graphicState.postRenderCleanupBackdrop();
-
-        playerCamera.lookThrough();
-        PerformanceMonitor.endActivity();
-    }
-
-    private void renderObjectsOpaque() {
-        PerformanceMonitor.startActivity("Render Objects (Opaque)");
-        for (RenderSystem renderer : systemManager.iterateRenderSubscribers()) {
-            renderer.renderOpaque();
-        }
-        PerformanceMonitor.endActivity();
-    }
-
-    private void renderChunksOpaque() {
-        PerformanceMonitor.startActivity("Render Chunks (Opaque)");
-        while (renderQueues.chunksOpaque.size() > 0) {
-            renderChunk(renderQueues.chunksOpaque.poll(), ChunkMesh.RenderPhase.OPAQUE, playerCamera, ChunkRenderMode.DEFAULT);
-        }
-        PerformanceMonitor.endActivity();
-    }
-
-    private void renderChunksAlphaReject() {
-        PerformanceMonitor.startActivity("Render Chunks (Alpha Reject)");
-        while (renderQueues.chunksAlphaReject.size() > 0) {
-            renderChunk(renderQueues.chunksAlphaReject.poll(), ChunkMesh.RenderPhase.ALPHA_REJECT, playerCamera, ChunkRenderMode.DEFAULT);
-        }
-        PerformanceMonitor.endActivity();
-    }
-
-    private void renderOverlays() {
-        PerformanceMonitor.startActivity("Render Overlays");
-        for (RenderSystem renderer : systemManager.iterateRenderSubscribers()) {
-            renderer.renderOverlay();
-        }
-        PerformanceMonitor.endActivity();
-    }
-
-    private void renderFirstPersonView() {
-        if (!renderingDebugConfig.isFirstPersonElementsHidden()) {
-            PerformanceMonitor.startActivity("Render First Person");
-            graphicState.preRenderSetupFirstPerson();
-
-            playerCamera.updateMatrices(90f);
-            playerCamera.loadProjectionMatrix();
-
-            for (RenderSystem renderer : systemManager.iterateRenderSubscribers()) {
-                renderer.renderFirstPerson();
-            }
-
-            playerCamera.updateMatrices();
-            playerCamera.loadProjectionMatrix();
-
-            graphicState.postRenderClenaupFirstPerson();
-            PerformanceMonitor.endActivity();
-        }
-    }
-
-    private void renderLightGeometry() {
-        PerformanceMonitor.startActivity("Render Light Geometry");
-        // DISABLED UNTIL WE CAN FIND WHY IT's BROKEN. SEE ISSUE #1486
-        /*
-        graphicState.preRenderSetupLightGeometryStencil();
-
-        simple.enable();
-        simple.setCamera(playerCamera);
-        EntityManager entityManager = context.get(EntityManager.class);
-        for (EntityRef entity : entityManager.getEntitiesWith(LightComponent.class, LocationComponent.class)) {
-            LocationComponent locationComponent = entity.getComponent(LocationComponent.class);
-            LightComponent lightComponent = entity.getComponent(LightComponent.class);
-
-            final Vector3f worldPosition = locationComponent.getWorldPosition();
-            renderLightComponent(lightComponent, worldPosition, simple, true);
-        }
-
-        graphicState.postRenderCleanupLightGeometryStencil();
-        */
-
-        graphicState.preRenderSetupLightGeometry();
-        EntityManager entityManager = context.get(EntityManager.class);
-        for (EntityRef entity : entityManager.getEntitiesWith(LightComponent.class, LocationComponent.class)) {
-            LocationComponent locationComponent = entity.getComponent(LocationComponent.class);
-            LightComponent lightComponent = entity.getComponent(LightComponent.class);
-
-            final Vector3f worldPosition = locationComponent.getWorldPosition();
-            renderLightComponent(lightComponent, worldPosition, lightGeometryShader, false);
-        }
-        graphicState.postRenderCleanupLightGeometry();
-
-        // Sunlight
-        graphicState.preRenderSetupDirectionalLights();
-
-        Vector3f sunlightWorldPosition = new Vector3f(backdropProvider.getSunDirection(true));
-        sunlightWorldPosition.scale(50000f);
-        sunlightWorldPosition.add(playerCamera.getPosition());
-        renderLightComponent(mainDirectionalLight, sunlightWorldPosition, lightGeometryShader, false);
-
-        graphicState.postRenderCleanupDirectionalLights();
-
-        postProcessor.applyLightBufferPass();
-        PerformanceMonitor.endActivity();
-    }
-
-    private boolean renderLightComponent(LightComponent lightComponent, Vector3f lightWorldPosition, Material program, boolean geometryOnly) {
-        Vector3f positionViewSpace = new Vector3f();
-        positionViewSpace.sub(lightWorldPosition, playerCamera.getPosition());
-
-        boolean doRenderLight = lightComponent.lightType == LightComponent.LightType.DIRECTIONAL
-                || lightComponent.lightRenderingDistance == 0.0f
-                || positionViewSpace.lengthSquared() < (lightComponent.lightRenderingDistance * lightComponent.lightRenderingDistance);
-
-        doRenderLight &= isLightVisible(positionViewSpace, lightComponent);
-
-        if (!doRenderLight) {
-            return false;
-        }
-
-        if (!geometryOnly) {
-            if (lightComponent.lightType == LightComponent.LightType.POINT) {
-                program.activateFeature(ShaderProgramFeature.FEATURE_LIGHT_POINT);
-            } else if (lightComponent.lightType == LightComponent.LightType.DIRECTIONAL) {
-                program.activateFeature(ShaderProgramFeature.FEATURE_LIGHT_DIRECTIONAL);
-            }
-        }
-        program.enable();
-        program.setCamera(playerCamera);
-
-        Vector3f worldPosition = new Vector3f();
-        worldPosition.sub(lightWorldPosition, playerCamera.getPosition());
-
-        Vector3f lightViewPosition = new Vector3f(worldPosition);
-        playerCamera.getViewMatrix().transformPoint(lightViewPosition);
-
-        program.setFloat3("lightViewPos", lightViewPosition.x, lightViewPosition.y, lightViewPosition.z, true);
-
-        Matrix4f modelMatrix = new Matrix4f();
-        modelMatrix.set(lightComponent.lightAttenuationRange);
-
-        modelMatrix.setTranslation(worldPosition);
-        program.setMatrix4("modelMatrix", modelMatrix, true);
-
-        if (!geometryOnly) {
-            program.setFloat3("lightColorDiffuse", lightComponent.lightColorDiffuse.x, lightComponent.lightColorDiffuse.y, lightComponent.lightColorDiffuse.z, true);
-            program.setFloat3("lightColorAmbient", lightComponent.lightColorAmbient.x, lightComponent.lightColorAmbient.y, lightComponent.lightColorAmbient.z, true);
-
-            program.setFloat4("lightProperties", lightComponent.lightAmbientIntensity, lightComponent.lightDiffuseIntensity,
-                    lightComponent.lightSpecularIntensity, lightComponent.lightSpecularPower, true);
-        }
-
-        if (lightComponent.lightType == LightComponent.LightType.POINT) {
-            if (!geometryOnly) {
-                program.setFloat4("lightExtendedProperties", lightComponent.lightAttenuationRange * 0.975f, lightComponent.lightAttenuationFalloff, 0.0f, 0.0f, true);
-            }
-
-            LightGeometryHelper.renderSphereGeometry();
-        } else if (lightComponent.lightType == LightComponent.LightType.DIRECTIONAL) {
-            // Directional lights cover all pixels on the screen
-            postProcessor.renderFullscreenQuad();
-        }
-
-        if (!geometryOnly) {
-            if (lightComponent.lightType == LightComponent.LightType.POINT) {
-                program.deactivateFeature(ShaderProgramFeature.FEATURE_LIGHT_POINT);
-            } else if (lightComponent.lightType == LightComponent.LightType.DIRECTIONAL) {
-                program.deactivateFeature(ShaderProgramFeature.FEATURE_LIGHT_DIRECTIONAL);
-            }
-        }
-
-        return true;
-    }
-
-    private void renderChunksRefractiveReflective() {
-        PerformanceMonitor.startActivity("Render Chunks (Refractive/Reflective)");
-
-        boolean isHeadUnderWater = isHeadUnderWater();
-        graphicState.preRenderSetupSceneReflectiveRefractive(isHeadUnderWater);
-
-        while (renderQueues.chunksAlphaBlend.size() > 0) {
-            renderChunk(renderQueues.chunksAlphaBlend.poll(), ChunkMesh.RenderPhase.REFRACTIVE, playerCamera, ChunkRenderMode.DEFAULT);
-        }
-
-        graphicState.postRenderCleanupSceneReflectiveRefractive(isHeadUnderWater);
-        PerformanceMonitor.endActivity();
-    }
-
-    private void renderSimpleBlendMaterials() {
-        PerformanceMonitor.startActivity("Render Objects (Transparent)");
-        graphicState.preRenderSetupSimpleBlendMaterials();
-
-        for (RenderSystem renderer : systemManager.iterateRenderSubscribers()) {
-            renderer.renderAlphaBlend();
-        }
-
-        graphicState.postRenderCleanupSimpleBlendMaterials();
-        PerformanceMonitor.endActivity();
-    }
-
-    private void renderChunk(RenderableChunk chunk, ChunkMesh.RenderPhase phase, Camera camera, ChunkRenderMode mode) {
-        if (chunk.hasMesh()) {
-            final Vector3f cameraPosition = camera.getPosition();
-            final Vector3f chunkPosition = chunk.getPosition().toVector3f();
-            final Vector3f chunkPositionRelativeToCamera =
-                    new Vector3f(chunkPosition.x * ChunkConstants.SIZE_X - cameraPosition.x,
-                            chunkPosition.y * ChunkConstants.SIZE_Y - cameraPosition.y,
-                            chunkPosition.z * ChunkConstants.SIZE_Z - cameraPosition.z);
-
-            if (mode == ChunkRenderMode.DEFAULT || mode == ChunkRenderMode.REFLECTION) {
-                if (phase == ChunkMesh.RenderPhase.REFRACTIVE) {
-                    chunkShader.activateFeature(ShaderProgramFeature.FEATURE_REFRACTIVE_PASS);
-                } else if (phase == ChunkMesh.RenderPhase.ALPHA_REJECT) {
-                    chunkShader.activateFeature(ShaderProgramFeature.FEATURE_ALPHA_REJECT);
-                }
-
-                chunkShader.setFloat3("chunkPositionWorld", chunkPosition.x * ChunkConstants.SIZE_X,
-                        chunkPosition.y * ChunkConstants.SIZE_Y,
-                        chunkPosition.z * ChunkConstants.SIZE_Z);
-                chunkShader.setFloat("animated", chunk.isAnimated() ? 1.0f : 0.0f);
-
-                if (mode == ChunkRenderMode.REFLECTION) {
-                    chunkShader.setFloat("clip", camera.getClipHeight());
-                } else {
-                    chunkShader.setFloat("clip", 0.0f);
-                }
-
-                chunkShader.enable();
-
-            } else if (mode == ChunkRenderMode.SHADOW_MAP) {
-                shadowMapShader.enable();
-
-            } else if (mode == ChunkRenderMode.Z_PRE_PASS) {
-                CoreRegistry.get(ShaderManager.class).disableShader();
-            }
-
-            graphicState.preRenderSetupChunk(chunkPositionRelativeToCamera);
-
-            if (chunk.hasMesh()) {
-                if (renderingDebugConfig.isRenderChunkBoundingBoxes()) {
-                    AABBRenderer aabbRenderer = new AABBRenderer(chunk.getAABB());
-                    aabbRenderer.renderLocally(1f);
-                    statRenderedTriangles += 12;
-                }
-
-                chunk.getMesh().render(phase);
-                statRenderedTriangles += chunk.getMesh().triangleCount();
-            }
-
-            graphicState.postRenderCleanupChunk();
-
-            // TODO: review - moving the deactivateFeature commands to the analog codeblock above doesn't work. Why?
-            if (mode == ChunkRenderMode.DEFAULT || mode == ChunkRenderMode.REFLECTION) {
-                if (phase == ChunkMesh.RenderPhase.REFRACTIVE) {
-                    chunkShader.deactivateFeature(ShaderProgramFeature.FEATURE_REFRACTIVE_PASS);
-                } else if (phase == ChunkMesh.RenderPhase.ALPHA_REJECT) {
-                    chunkShader.deactivateFeature(ShaderProgramFeature.FEATURE_ALPHA_REJECT);
-                }
-            }
-        } else {
-            statChunkNotReady++;
-        }
+    @Override
+    public boolean isFirstRenderingStageForCurrentFrame() {
+        return isFirstRenderingStageForCurrentFrame;
     }
 
     /**
-     * Disposes this world.
+     * Disposes of support objects used by this implementation.
      */
     @Override
     public void dispose() {
         renderableWorld.dispose();
         worldProvider.dispose();
-        graphicState.dispose();
-        postProcessor.dispose();
-    }
-
-    /**
-     * Sets a new player and spawns him at the spawning point.
-     *
-     * @param p The player
-     */
-    @Override
-    public void setPlayer(LocalPlayer p) {
-        player = p;
-        renderableWorld.updateChunksInProximity(renderingConfig.getViewDistance());
     }
 
     @Override
-    public void changeViewDistance(ViewDistance viewingDistance) {
-        renderableWorld.updateChunksInProximity(viewingDistance);
-    }
-
-    public boolean isLightVisible(Vector3f positionViewSpace, LightComponent component) {
-        return component.lightType == LightComponent.LightType.DIRECTIONAL
-                || playerCamera.getViewFrustum().intersects(positionViewSpace, component.lightAttenuationRange);
-
+    public void setViewDistance(ViewDistance viewDistance) {
+        renderableWorld.updateChunksInProximity(viewDistance);
     }
 
     @Override
-    public boolean isHeadUnderWater() {
-        Vector3f cameraPosition = new Vector3f(playerCamera.getPosition());
-
-        // Compensate for waves
-        if (renderingConfig.isAnimateWater()) {
-            cameraPosition.y -= RenderHelper.evaluateOceanHeightAtPosition(cameraPosition, worldProvider.getTime().getDays());
-        }
-
-        if (worldProvider.isBlockRelevant(cameraPosition)) {
-            return worldProvider.getBlock(cameraPosition).isLiquid();
-        }
-        return false;
+    public float getTimeSmoothedMainLightIntensity() {
+        return timeSmoothedMainLightIntensity;
     }
 
     @Override
-    public float getSmoothedPlayerSunlightValue() {
-        return smoothedPlayerSunlightValue;
-    }
-
-    @Override
-    public float getSunlightValue() {
-        return getSunlightValueAt(playerCamera.getPosition());
-    }
-
-    @Override
-    public float getBlockLightValue() {
-        return getBlockLightValueAt(playerCamera.getPosition());
-    }
-
-    @Override
-    public float getRenderingLightValueAt(Vector3f pos) {
+    public float getRenderingLightIntensityAt(Vector3f pos) {
         float rawLightValueSun = worldProvider.getSunlight(pos) / 15.0f;
         float rawLightValueBlock = worldProvider.getLight(pos) / 15.0f;
 
@@ -736,67 +578,49 @@ public final class WorldRendererImpl implements WorldRenderer {
     }
 
     @Override
-    public float getSunlightValueAt(Vector3f position) {
+    public float getMainLightIntensityAt(Vector3f position) {
         return backdropProvider.getDaylight() * worldProvider.getSunlight(position) / 15.0f;
     }
 
     @Override
-    public float getBlockLightValueAt(Vector3f position) {
+    public float getBlockLightIntensityAt(Vector3f position) {
         return worldProvider.getLight(position) / 15.0f;
     }
 
     @Override
     public String getMetrics() {
-        StringBuilder builder = new StringBuilder();
-        builder.append(renderableWorld.getMetrics());
-        builder.append("Empty Mesh Chunks: ");
-        builder.append(statChunkMeshEmpty);
-        builder.append("\n");
-        builder.append("Unready Chunks: ");
-        builder.append(statChunkNotReady);
-        builder.append("\n");
-        builder.append("Rendered Triangles: ");
-        builder.append(statRenderedTriangles);
-        builder.append("\n");
-        return builder.toString();
-    }
-
-    public LocalPlayer getPlayer() {
-        return player;
+        String stringToReturn = "";
+        stringToReturn += renderableWorld.getMetrics();
+        stringToReturn += "Empty Mesh Chunks: ";
+        stringToReturn += statChunkMeshEmpty;
+        stringToReturn += "\n";
+        stringToReturn += "Unready Chunks: ";
+        stringToReturn += statChunkNotReady;
+        stringToReturn += "\n";
+        stringToReturn += "Rendered Triangles: ";
+        stringToReturn += statRenderedTriangles;
+        stringToReturn += "\n";
+        return stringToReturn;
     }
 
     @Override
-    public WorldProvider getWorldProvider() {
-        return worldProvider;
+    public float getMillisecondsSinceRenderingStart() {
+        return millisecondsSinceRenderingStart;
     }
 
     @Override
-    public ChunkProvider getChunkProvider() {
-        return renderableWorld.getChunkProvider();
-    }
-
-    @Override
-    public float getTick() {
-        return tick;
-    }
-
-    @Override
-    public Camera getActiveCamera() {
+    public SubmersibleCamera getActiveCamera() {
         return playerCamera;
     }
 
     @Override
     public Camera getLightCamera() {
-        return shadowMapCamera;
+        //FIXME: remove this method
+        return shadowMapNode.shadowMapCamera;
     }
 
     @Override
-    public WorldRenderingStage getCurrentRenderStage() {
+    public RenderingStage getCurrentRenderStage() {
         return currentRenderingStage;
-    }
-
-    @Override
-    public Vector3f getTint() {
-        return worldProvider.getBlock(playerCamera.getPosition()).getTint();
     }
 }

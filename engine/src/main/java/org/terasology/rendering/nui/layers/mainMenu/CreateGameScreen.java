@@ -1,5 +1,5 @@
 /*
- * Copyright 2014 MovingBlocks
+ * Copyright 2016 MovingBlocks
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,6 +19,7 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.terasology.assets.ResourceUrn;
 import org.terasology.config.Config;
 import org.terasology.config.ModuleConfig;
 import org.terasology.engine.GameEngine;
@@ -28,6 +29,7 @@ import org.terasology.engine.modes.StateLoading;
 import org.terasology.engine.module.ModuleManager;
 import org.terasology.engine.module.StandardModuleExtension;
 import org.terasology.game.GameManifest;
+import org.terasology.i18n.TranslationSystem;
 import org.terasology.module.DependencyInfo;
 import org.terasology.module.DependencyResolver;
 import org.terasology.module.Module;
@@ -37,6 +39,7 @@ import org.terasology.network.NetworkMode;
 import org.terasology.registry.In;
 import org.terasology.rendering.nui.CoreScreenLayer;
 import org.terasology.rendering.nui.WidgetUtil;
+import org.terasology.rendering.nui.animation.MenuAnimationSystems;
 import org.terasology.rendering.nui.databinding.BindHelper;
 import org.terasology.rendering.nui.databinding.Binding;
 import org.terasology.rendering.nui.databinding.ReadOnlyBinding;
@@ -59,12 +62,14 @@ import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
 
-/**
- */
 public class CreateGameScreen extends CoreScreenLayer {
+
+    public static final ResourceUrn ASSET_URI = new ResourceUrn("engine:createGameScreen");
 
     private static final String DEFAULT_GAME_NAME_PREFIX = "Game ";
     private static final Logger logger = LoggerFactory.getLogger(CreateGameScreen.class);
+
+    private static final String DEFAULT_GAME_TEMPLATE_NAME = "JoshariasSurvival";
 
     @In
     private WorldGeneratorManager worldGeneratorManager;
@@ -76,6 +81,9 @@ public class CreateGameScreen extends CoreScreenLayer {
     private GameEngine gameEngine;
 
     @In
+    private TranslationSystem translationSystem;
+
+    @In
     private Config config;
 
     private boolean loadingAsServer;
@@ -83,22 +91,26 @@ public class CreateGameScreen extends CoreScreenLayer {
     @Override
     @SuppressWarnings("unchecked")
     public void initialise() {
-        final UIText worldName = find("worldName", UIText.class);
-        if (worldName != null) {
-            int gameNum = 1;
-            for (GameInfo info : GameProvider.getSavedGames()) {
-                if (info.getManifest().getTitle().startsWith(DEFAULT_GAME_NAME_PREFIX)) {
-                    String remainder = info.getManifest().getTitle().substring(DEFAULT_GAME_NAME_PREFIX.length());
-                    try {
-                        gameNum = Math.max(gameNum, Integer.parseInt(remainder) + 1);
-                    } catch (NumberFormatException e) {
-                        logger.trace("Could not parse {} as integer (not an error)", remainder, e);
+
+        setAnimationSystem(MenuAnimationSystems.createDefaultSwipeAnimation());
+
+        UILabel gameTypeTitle = find("gameTypeTitle", UILabel.class);
+        if (gameTypeTitle != null) {
+            gameTypeTitle.bindText(new ReadOnlyBinding<String>() {
+                @Override
+                public String get() {
+                    if (loadingAsServer) {
+                        return translationSystem.translate("${engine:menu#select-multiplayer-game-sub-title}");
+                    } else {
+                        return translationSystem.translate("${engine:menu#select-singleplayer-game-sub-title}");
                     }
                 }
-            }
-
-            worldName.setText(DEFAULT_GAME_NAME_PREFIX + gameNum);
+            });
         }
+
+
+        final UIText worldName = find("worldName", UIText.class);
+        setGameName(worldName);
 
         final UIText seed = find("seed", UIText.class);
         if (seed != null) {
@@ -149,8 +161,8 @@ public class CreateGameScreen extends CoreScreenLayer {
                 @Override
                 public List<WorldGeneratorInfo> get() {
                     // grab all the module names and their dependencies
+                    // This grabs modules from `config.getDefaultModSelection()` which is updated in SelectModulesScreen
                     Set<Name> enabledModuleNames = getAllEnabledModuleNames().stream().collect(Collectors.toSet());
-
                     List<WorldGeneratorInfo> result = Lists.newArrayList();
                     for (WorldGeneratorInfo option : worldGeneratorManager.getWorldGenerators()) {
                         if (enabledModuleNames.contains(option.getUri().getModuleName())) {
@@ -201,7 +213,7 @@ public class CreateGameScreen extends CoreScreenLayer {
         }
 
 
-        WidgetUtil.trySubscribe(this, "close", button -> getManager().popScreen());
+        WidgetUtil.trySubscribe(this, "close", button -> triggerBackAnimation());
 
         WidgetUtil.trySubscribe(this, "play", button -> {
             if (worldGenerator.getSelection() == null) {
@@ -244,35 +256,79 @@ public class CreateGameScreen extends CoreScreenLayer {
             }
         };
         previewSeed.bindEnabled(worldGeneratorSelected);
+        PreviewWorldScreen screen = getManager().createScreen(PreviewWorldScreen.ASSET_URI, PreviewWorldScreen.class);
         WidgetUtil.trySubscribe(this, "previewSeed", button -> {
-            PreviewWorldScreen screen = getManager().pushScreen(PreviewWorldScreen.ASSET_URI, PreviewWorldScreen.class);
             if (screen != null) {
                 screen.bindSeed(BindHelper.bindBeanProperty("text", seed, String.class));
+                try {
+                    screen.setEnvironment();
+                    triggerForwardAnimation(screen);
+                } catch (Exception e) {
+                    String msg = "Unable to load world for a 2D preview:\n" + e.toString();
+                    getManager().pushScreen(MessagePopup.ASSET_URI, MessagePopup.class).setMessage("Error", msg);
+                    logger.error("Unable to load world for a 2D preview", e);
+                }
             }
         });
 
-        WidgetUtil.trySubscribe(this, "mods", button -> getManager().pushScreen("engine:selectModsScreen"));
+        WidgetUtil.trySubscribe(this, "mods", w -> triggerForwardAnimation(SelectModulesScreen.ASSET_URI));
     }
 
     @Override
     public void onOpened() {
         super.onOpened();
+        final UIText worldName = find("worldName", UIText.class);
+        setGameName(worldName);
 
         final UIDropdown<Module> gameplay = find("gameplay", UIDropdown.class);
 
-        // get the default gameplay module from the config.  This is likely to have a user triggered selection.
-        Name defaultGameplayModuleName = new Name(config.getDefaultModSelection().getDefaultGameplayModuleName());
+        String configDefaultModuleName = config.getDefaultModSelection().getDefaultGameplayModuleName();
+        String useThisModuleName = "";
+
+        // Get the default gameplay module from the config if it exists. This is likely to have a user triggered selection.
+        // Otherwise, default to DEFAULT_GAME_TEMPLATE_NAME.
+        if ("".equalsIgnoreCase(configDefaultModuleName) || DEFAULT_GAME_TEMPLATE_NAME.equalsIgnoreCase(configDefaultModuleName)) {
+            useThisModuleName = DEFAULT_GAME_TEMPLATE_NAME;
+        } else {
+            useThisModuleName = configDefaultModuleName;
+        }
+
+        Name defaultGameplayModuleName = new Name(useThisModuleName);
         Module defaultGameplayModule = moduleManager.getRegistry().getLatestModuleVersion(defaultGameplayModuleName);
+
         if (defaultGameplayModule != null) {
             gameplay.setSelection(defaultGameplayModule);
+
+            if (configDefaultModuleName.equalsIgnoreCase(DEFAULT_GAME_TEMPLATE_NAME)) {
+                setDefaultGeneratorOfGameplayModule(defaultGameplayModule);
+            }
         } else {
-            // find the first gameplay module that is available
+            // Find the first gameplay module that is available.
             for (Module module : moduleManager.getRegistry()) {
-                // module is null if it is no longer present
+                // Module is null if it is no longer present.
                 if (module != null && StandardModuleExtension.isGameplayModule(module)) {
                     gameplay.setSelection(module);
+                    break;
                 }
             }
+        }
+    }
+
+    private void setGameName(UIText worldName) {
+        if (worldName != null) {
+            int gameNum = 1;
+            for (GameInfo info : GameProvider.getSavedGames()) {
+                if (info.getManifest().getTitle().startsWith(DEFAULT_GAME_NAME_PREFIX)) {
+                    String remainder = info.getManifest().getTitle().substring(DEFAULT_GAME_NAME_PREFIX.length());
+                    try {
+                        gameNum = Math.max(gameNum, Integer.parseInt(remainder) + 1);
+                    } catch (NumberFormatException e) {
+                        logger.trace("Could not parse {} as integer (not an error)", remainder, e);
+                    }
+                }
+            }
+
+            worldName.setText(DEFAULT_GAME_NAME_PREFIX + gameNum);
         }
     }
 
@@ -306,6 +362,16 @@ public class CreateGameScreen extends CoreScreenLayer {
         moduleConfig.setDefaultGameplayModuleName(module.getId().toString());
         moduleConfig.clear();
         moduleConfig.addModule(module.getId());
+
+        // Set the default generator of the selected gameplay module
+        setDefaultGeneratorOfGameplayModule(module);
+
+        config.save();
+    }
+
+    // Sets the default generator of the passed in gameplay module. Make sure it's already selected.
+    private void setDefaultGeneratorOfGameplayModule(Module module) {
+        ModuleConfig moduleConfig = config.getDefaultModSelection();
 
         // Set the default generator of the selected gameplay module
         SimpleUri defaultWorldGenerator = StandardModuleExtension.getDefaultWorldGenerator(module);

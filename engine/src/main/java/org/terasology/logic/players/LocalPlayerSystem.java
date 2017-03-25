@@ -1,5 +1,5 @@
 /*
- * Copyright 2013 MovingBlocks
+ * Copyright 2016 MovingBlocks
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,7 +16,9 @@
 package org.terasology.logic.players;
 
 import org.terasology.assets.ResourceUrn;
+import org.terasology.config.BindsConfig;
 import org.terasology.config.Config;
+import org.terasology.engine.SimpleUri;
 import org.terasology.engine.Time;
 import org.terasology.entitySystem.entity.EntityRef;
 import org.terasology.entitySystem.event.EventPriority;
@@ -25,8 +27,13 @@ import org.terasology.entitySystem.systems.BaseComponentSystem;
 import org.terasology.entitySystem.systems.RenderSystem;
 import org.terasology.entitySystem.systems.UpdateSubscriberSystem;
 import org.terasology.input.ButtonState;
+import org.terasology.input.Input;
+import org.terasology.input.InputSystem;
 import org.terasology.input.binds.interaction.FrobButton;
 import org.terasology.input.binds.inventory.UseItemButton;
+import org.terasology.input.binds.movement.AutoMoveButton;
+import org.terasology.input.binds.movement.CrouchButton;
+import org.terasology.input.binds.movement.CrouchModeButton;
 import org.terasology.input.binds.movement.ForwardsMovementAxis;
 import org.terasology.input.binds.movement.ForwardsRealMovementAxis;
 import org.terasology.input.binds.movement.JumpButton;
@@ -44,10 +51,15 @@ import org.terasology.logic.characters.CharacterComponent;
 import org.terasology.logic.characters.CharacterHeldItemComponent;
 import org.terasology.logic.characters.CharacterMoveInputEvent;
 import org.terasology.logic.characters.CharacterMovementComponent;
+import org.terasology.logic.characters.GazeMountPointComponent;
 import org.terasology.logic.characters.MovementMode;
+import org.terasology.logic.characters.events.OnItemUseEvent;
+import org.terasology.logic.characters.events.SetMovementModeEvent;
 import org.terasology.logic.characters.interactions.InteractionUtil;
-import org.terasology.logic.inventory.ItemComponent;
+import org.terasology.logic.debug.MovementDebugCommands;
+import org.terasology.logic.delay.DelayManager;
 import org.terasology.logic.location.LocationComponent;
+import org.terasology.logic.notifications.NotificationMessageEvent;
 import org.terasology.logic.players.event.OnPlayerSpawnedEvent;
 import org.terasology.math.AABB;
 import org.terasology.math.Direction;
@@ -55,6 +67,10 @@ import org.terasology.math.TeraMath;
 import org.terasology.math.geom.Quat4f;
 import org.terasology.math.geom.Vector3f;
 import org.terasology.network.ClientComponent;
+import org.terasology.network.NetworkSystem;
+import org.terasology.physics.engine.CharacterCollider;
+import org.terasology.physics.engine.PhysicsEngine;
+import org.terasology.physics.engine.SweepCallback;
 import org.terasology.registry.In;
 import org.terasology.rendering.AABBRenderer;
 import org.terasology.rendering.BlockOverlayRenderer;
@@ -66,25 +82,41 @@ import org.terasology.world.block.Block;
 import org.terasology.world.block.BlockComponent;
 import org.terasology.world.block.regions.BlockRegionComponent;
 
-/**
- */
+import java.util.List;
+
+import static org.terasology.logic.characters.KinematicCharacterMover.VERTICAL_PENETRATION_LEEWAY;
+
 // TODO: This needs a really good cleanup
 // TODO: Move more input stuff to a specific input system?
 // TODO: Camera should become an entity/component, so it can follow the player naturally
 public class LocalPlayerSystem extends BaseComponentSystem implements UpdateSubscriberSystem, RenderSystem {
+
+    @In
+    NetworkSystem networkSystem;
     @In
     private LocalPlayer localPlayer;
     @In
     private WorldProvider worldProvider;
     private Camera playerCamera;
+    @In
+    private MovementDebugCommands movementDebugCommands;
+    @In
+    private PhysicsEngine physics;
+    @In
+    private DelayManager delayManager;
 
     @In
     private Config config;
+    @In
+    private InputSystem inputSystem;
+
+    private BindsConfig bindsConfig;
     private float bobFactor;
     private float lastStepDelta;
 
     // Input
     private Vector3f relativeMovement = new Vector3f();
+    private boolean isAutoMove = false;
     private boolean runPerDefault = true;
     private boolean run = runPerDefault;
     private boolean jump;
@@ -92,17 +124,17 @@ public class LocalPlayerSystem extends BaseComponentSystem implements UpdateSubs
     private float lookPitchDelta;
     private float lookYaw;
     private float lookYawDelta;
+    private float crouchFraction = 0.5f;
 
     @In
     private Time time;
-
-    private long lastItemUse;
 
     private BlockOverlayRenderer aabbRenderer = new AABBRenderer(AABB.createEmpty());
 
     private int inputSequenceNumber = 1;
 
     private AABB aabb;
+
 
     public void setPlayerCamera(Camera camera) {
         playerCamera = camera;
@@ -150,9 +182,95 @@ public class LocalPlayerSystem extends BaseComponentSystem implements UpdateSubs
         jump = false;
     }
 
+    /**
+     * Reduces height and eyeHeight by crouchFraction and changes MovementMode.
+     */
+    private void crouchPlayer(EntityRef entity) {
+        ClientComponent clientComp = entity.getComponent(ClientComponent.class);
+        GazeMountPointComponent gazeMountPointComponent = clientComp.character.getComponent(GazeMountPointComponent.class);
+        float height = clientComp.character.getComponent(CharacterMovementComponent.class).height;
+        float eyeHeight = gazeMountPointComponent.translate.getY();
+        movementDebugCommands.playerHeight(localPlayer.getClientEntity(), height * crouchFraction);
+        movementDebugCommands.playerEyeHeight(localPlayer.getClientEntity(), eyeHeight * crouchFraction);
+        clientComp.character.send(new SetMovementModeEvent(MovementMode.CROUCHING));
+    }
+
+    /**
+     * Checks if there is an impenetrable block above,
+     * Raises a Notification "Cannot stand up here!" if present
+     * If not present, increases height and eyeHeight by crouchFraction and changes MovementMode.
+     */
+    private void standPlayer(EntityRef entity) {
+        ClientComponent clientComp = entity.getComponent(ClientComponent.class);
+        GazeMountPointComponent gazeMountPointComponent = clientComp.character.getComponent(GazeMountPointComponent.class);
+        float height = clientComp.character.getComponent(CharacterMovementComponent.class).height;
+        float eyeHeight = gazeMountPointComponent.translate.getY();
+        Vector3f pos = entity.getComponent(LocationComponent.class).getWorldPosition();
+        // Check for collision when rising
+        CharacterCollider collider = physics.getCharacterCollider(clientComp.character);
+        // height used below = (1 - crouch_fraction) * standing_height
+        Vector3f to = new Vector3f(pos.x, pos.y + (1 - crouchFraction) * height / crouchFraction, pos.z);
+        SweepCallback callback = collider.sweep(pos, to, VERTICAL_PENETRATION_LEEWAY, -1f);
+        if (callback.hasHit()) {
+            entity.send(new NotificationMessageEvent("Cannot stand up here!", entity));
+            return;
+        }
+        movementDebugCommands.playerHeight(localPlayer.getClientEntity(), height / crouchFraction);
+        movementDebugCommands.playerEyeHeight(localPlayer.getClientEntity(), eyeHeight / crouchFraction);
+        clientComp.character.send(new SetMovementModeEvent(MovementMode.WALKING));
+    }
+
+    // To check if a valid key has been assigned, either primary or secondary and return it
+    private Input getValidKey(List<Input> inputs) {
+        for(Input input: inputs) {
+            if(input != null) {
+                return input;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Auto move is disabled when the associated key is pressed again.
+     * This cancels the simulated repeated key stroke for the forward input button.
+     */
+    private void stopAutoMove() {
+        List<Input> inputs = bindsConfig.getBinds(new SimpleUri("engine:forwards"));
+        Input forwardKey = getValidKey(inputs);
+        if(forwardKey != null) {
+            inputSystem.cancelSimulatedKeyStroke(forwardKey);
+            isAutoMove = false;
+        }
+
+    }
+
+    /**
+     * Append the input for moving forward to the keyboard command queue to simulate pressing of the forward key.
+     * For an input that repeats, the key must be in Down state before Repeat state can be applied to it.
+     */
+    private void startAutoMove() {
+        isAutoMove = false;
+        bindsConfig = config.getInput().getBinds();
+        List<Input> inputs = bindsConfig.getBinds(new SimpleUri("engine:forwards"));
+        Input forwardKey = getValidKey(inputs);
+        if(forwardKey != null) {
+            isAutoMove = true;
+            inputSystem.simulateSingleKeyStroke(forwardKey);
+            inputSystem.simulateRepeatedKeyStroke(forwardKey);
+        }
+    }
+
     @ReceiveEvent
     public void onPlayerSpawn(OnPlayerSpawnedEvent event, EntityRef character) {
         if (character.equals(localPlayer.getCharacterEntity())) {
+
+            // Change height as per PlayerSettings
+            Float height = config.getPlayer().getHeight();
+            movementDebugCommands.playerHeight(localPlayer.getClientEntity(), height);
+            // Change eyeHeight as per PlayerSettings
+            Float eyeHeight = config.getPlayer().getEyeHeight();
+            GazeMountPointComponent gazeMountPointComponent = character.getComponent(GazeMountPointComponent.class);
+            gazeMountPointComponent.translate = new Vector3f(0, eyeHeight, 0);
 
             // Trigger updating the player camera position as soon as the local player is spawned.
             // This is not done while the game is still loading, since systems are not updated.
@@ -201,6 +319,9 @@ public class LocalPlayerSystem extends BaseComponentSystem implements UpdateSubs
     @ReceiveEvent(components = {ClientComponent.class})
     public void updateForwardsMovement(ForwardsMovementAxis event, EntityRef entity) {
         relativeMovement.z = event.getValue();
+        if(relativeMovement.z == 0f && isAutoMove) {
+            stopAutoMove();
+        }
         event.consume();
     }
 
@@ -238,7 +359,45 @@ public class LocalPlayerSystem extends BaseComponentSystem implements UpdateSubs
     public void onToggleSpeedTemporarily(ToggleSpeedTemporarilyButton event, EntityRef entity) {
         boolean toggle = event.isDown();
         run = runPerDefault ^ toggle;
+        event.consume();
+    }
 
+    // Crouches if button is pressed. Stands if button is released.
+    @ReceiveEvent(components = {ClientComponent.class}, priority = EventPriority.PRIORITY_NORMAL)
+    public void onCrouchTemporarily(CrouchButton event, EntityRef entity) {
+        ClientComponent clientComp = entity.getComponent(ClientComponent.class);
+        CharacterMovementComponent move = clientComp.character.getComponent(CharacterMovementComponent.class);
+        if (event.isDown() && move.mode == MovementMode.WALKING) {
+            crouchPlayer(entity);
+        } else if (!event.isDown() && move.mode == MovementMode.CROUCHING) {
+            standPlayer(entity);
+        }
+        event.consume();
+    }
+
+    @ReceiveEvent(components = {ClientComponent.class}, priority = EventPriority.PRIORITY_NORMAL)
+    public void onCrouchMode(CrouchModeButton event, EntityRef entity) {
+        ClientComponent clientComp = entity.getComponent(ClientComponent.class);
+        CharacterMovementComponent move = clientComp.character.getComponent(CharacterMovementComponent.class);
+        if (event.isDown()) {
+            if (move.mode == MovementMode.WALKING) {
+                crouchPlayer(entity);
+            } else if (move.mode == MovementMode.CROUCHING) {
+                standPlayer(entity);
+            }
+        }
+        event.consume();
+    }
+
+    @ReceiveEvent(components = {ClientComponent.class}, priority = EventPriority.PRIORITY_NORMAL)
+    public void onAutoMoveMode(AutoMoveButton event, EntityRef entity) {
+        if (event.isDown()) {
+            if (!isAutoMove) {
+                startAutoMove();
+            } else {
+                stopAutoMove();
+            }
+        }
         event.consume();
     }
 
@@ -287,14 +446,13 @@ public class LocalPlayerSystem extends BaseComponentSystem implements UpdateSubs
         }
     }
 
-    public void setAABBRenderer(BlockOverlayRenderer newAABBRender) {
-        aabbRenderer = newAABBRender;
-    }
-
     public BlockOverlayRenderer getAABBRenderer() {
         return aabbRenderer;
     }
 
+    public void setAABBRenderer(BlockOverlayRenderer newAABBRender) {
+        aabbRenderer = newAABBRender;
+    }
 
     private void updateCamera(CharacterMovementComponent charMovementComp, Vector3f position, Quat4f rotation) {
         playerCamera.getPosition().set(position);
@@ -325,7 +483,6 @@ public class LocalPlayerSystem extends BaseComponentSystem implements UpdateSubs
         }
     }
 
-
     @ReceiveEvent(components = {CharacterComponent.class})
     public void onFrobButton(FrobButton event, EntityRef character) {
         if (event.getState() != ButtonState.DOWN) {
@@ -343,10 +500,9 @@ public class LocalPlayerSystem extends BaseComponentSystem implements UpdateSubs
         }
     }
 
-
     @ReceiveEvent(components = {CharacterComponent.class})
     public void onUseItemButton(UseItemButton event, EntityRef entity, CharacterHeldItemComponent characterHeldItemComponent) {
-        if (!event.isDown() || time.getGameTimeInMs() < characterHeldItemComponent.nextItemUseTime) {
+        if (!event.isDown()) {
             return;
         }
 
@@ -355,23 +511,22 @@ public class LocalPlayerSystem extends BaseComponentSystem implements UpdateSubs
             return;
         }
 
-        localPlayer.activateOwnedEntityAsClient(selectedItemEntity);
-
-        long currentTime = time.getGameTimeInMs();
-        // TODO: send this data back to the server so that other players can visualize this item use
-        // TODO: extract this into an event someplace so that this code does not have to exist both here and in CharacterInventorySystem
-        characterHeldItemComponent.lastItemUsedTime = currentTime;
-        characterHeldItemComponent.nextItemUseTime = currentTime;
-        ItemComponent itemComponent = selectedItemEntity.getComponent(ItemComponent.class);
-        if (itemComponent != null) {
-            characterHeldItemComponent.nextItemUseTime += itemComponent.cooldownTime;
+        boolean requestIsValid;
+        if (networkSystem.getMode().isAuthority()) {
+            // Let the ActivationRequest handler trigger the OnItemUseEvent if this is a local client
+            requestIsValid = true;
         } else {
-            characterHeldItemComponent.nextItemUseTime += 200;
+            OnItemUseEvent onItemUseEvent = new OnItemUseEvent();
+            entity.send(onItemUseEvent);
+            requestIsValid = !onItemUseEvent.isConsumed();
         }
-        entity.saveComponent(characterHeldItemComponent);
-        event.consume();
-    }
 
+        if (requestIsValid) {
+            localPlayer.activateOwnedEntityAsClient(selectedItemEntity);
+            entity.saveComponent(characterHeldItemComponent);
+            event.consume();
+        }
+    }
 
     private float calcBobbingOffset(float phaseOffset, float amplitude, float frequency) {
         return (float) java.lang.Math.sin(bobFactor * frequency + phaseOffset) * amplitude;

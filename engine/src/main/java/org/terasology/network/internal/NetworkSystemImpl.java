@@ -136,6 +136,7 @@ public class NetworkSystemImpl implements EntityChangeSubscriber, NetworkSystem 
     private Time time;
     private long nextNetworkTick;
 
+    private boolean kicked;
 
     // Server only
     private ChannelGroup allChannels = new DefaultChannelGroup("tera-channels");
@@ -234,9 +235,6 @@ public class NetworkSystemImpl implements EntityChangeSubscriber, NetworkSystem 
                 return new JoinStatusImpl("Failed to connect to server - " + connectCheck.getCause().getMessage());
             } else {
                 allChannels.add(connectCheck.getChannel());
-                mode = NetworkMode.CLIENT;
-                nextNetworkTick = time.getRealTimeInMs();
-                logger.info("Connected to server");
                 ClientConnectionHandler connectionHandler = connectCheck.getChannel().getPipeline().get(ClientConnectionHandler.class);
                 if (connectionHandler == null) {
                     JoinStatusImpl status = new JoinStatusImpl();
@@ -252,8 +250,9 @@ public class NetworkSystemImpl implements EntityChangeSubscriber, NetworkSystem 
 
     @Override
     public void shutdown() {
-        if (mode != NetworkMode.NONE) {
-            allChannels.close().awaitUninterruptibly();
+        allChannels.close().awaitUninterruptibly();
+        // Factory may be null if a local game session has happened, yet be initialized if networking has been used
+        if (factory != null) {
             factory.releaseExternalResources();
         }
         processPendingDisconnects();
@@ -745,8 +744,13 @@ public class NetworkSystemImpl implements EntityChangeSubscriber, NetworkSystem 
     public void forceDisconnect(Client client) {
         if (client instanceof NetClient) {
             NetClient nc = (NetClient) client;
-            removeClient(nc);
+            removeKickedClient(nc);
         }
+    }
+
+    void removeKickedClient(NetClient client) {
+        kicked = true;
+        disconnectedClients.offer(client);
     }
 
     void registerChannel(Channel channel) {
@@ -758,7 +762,9 @@ public class NetworkSystemImpl implements EntityChangeSubscriber, NetworkSystem 
     }
 
     void removeClient(NetClient client) {
-        disconnectedClients.offer(client);
+        if (!kicked) {
+            disconnectedClients.offer(client);
+        }
     }
 
     private void processRemovedClient(Client client) {
@@ -884,6 +890,11 @@ public class NetworkSystemImpl implements EntityChangeSubscriber, NetworkSystem 
     }
 
     void setServer(ServerImpl server) {
+        if (server != null) {
+            mode = NetworkMode.CLIENT;
+            nextNetworkTick = time.getRealTimeInMs();
+            logger.info("Connected to server");
+        }
         this.server = server;
 
     }

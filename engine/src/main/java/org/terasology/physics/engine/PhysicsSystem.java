@@ -1,5 +1,5 @@
 /*
- * Copyright 2013 MovingBlocks
+ * Copyright 2016 MovingBlocks
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -36,6 +36,9 @@ import org.terasology.math.geom.Vector3f;
 import org.terasology.monitoring.PerformanceMonitor;
 import org.terasology.network.NetworkComponent;
 import org.terasology.network.NetworkSystem;
+import org.terasology.physics.CollisionGroup;
+import org.terasology.physics.HitResult;
+import org.terasology.physics.StandardCollisionGroup;
 import org.terasology.physics.components.RigidBodyComponent;
 import org.terasology.physics.components.TriggerComponent;
 import org.terasology.physics.events.ChangeVelocityEvent;
@@ -43,8 +46,13 @@ import org.terasology.physics.events.CollideEvent;
 import org.terasology.physics.events.ForceEvent;
 import org.terasology.physics.events.ImpulseEvent;
 import org.terasology.physics.events.PhysicsResynchEvent;
+import org.terasology.physics.events.ImpactEvent;
+import org.terasology.physics.events.EntityImpactEvent;
+import org.terasology.physics.events.BlockImpactEvent;
 import org.terasology.registry.In;
 import org.terasology.world.OnChangedBlock;
+import org.terasology.world.WorldProvider;
+import org.terasology.world.block.Block;
 import org.terasology.world.block.BlockComponent;
 
 import java.util.Iterator;
@@ -62,6 +70,8 @@ public class PhysicsSystem extends BaseComponentSystem implements UpdateSubscrib
 
     private static final Logger logger = LoggerFactory.getLogger(PhysicsSystem.class);
     private static final long TIME_BETWEEN_NETSYNCS = 500;
+    private static final CollisionGroup[] DEFAULT_COLLISION_GROUP = {StandardCollisionGroup.WORLD, StandardCollisionGroup.CHARACTER, StandardCollisionGroup.DEFAULT};
+    private static final float COLLISION_DAMPENING_MULTIPLIER = 0.5f;
     @In
     private Time time;
     @In
@@ -70,6 +80,8 @@ public class PhysicsSystem extends BaseComponentSystem implements UpdateSubscrib
     private EntityManager entityManager;
     @In
     private PhysicsEngine physics;
+    @In
+    private WorldProvider worldProvider;
 
     private long lastNetsync;
 
@@ -135,6 +147,34 @@ public class PhysicsSystem extends BaseComponentSystem implements UpdateSubscrib
         physics.awakenArea(event.getBlockPosition().toVector3f(), 0.6f);
     }
 
+    @ReceiveEvent
+    public void onItemImpact(ImpactEvent event, EntityRef entity) {
+        RigidBody rigidBody = physics.getRigidBody(entity);
+        if (rigidBody != null) {
+            Vector3f vImpactNormal = new Vector3f(event.getImpactNormal());
+            Vector3f vImpactPoint = new Vector3f(event.getImpactPoint());
+            Vector3f vImpactSpeed = new Vector3f(event.getImpactSpeed());
+
+            float speedFactor = vImpactSpeed.length();
+            vImpactNormal.normalize();
+            vImpactSpeed.normalize();
+
+            float dotImpactNormal = vImpactSpeed.dot(vImpactNormal);
+
+            Vector3f impactResult = vImpactNormal.mul(dotImpactNormal);
+            impactResult = vImpactSpeed.sub(impactResult.mul(2.0f));
+            impactResult.normalize();
+
+            Vector3f vNewLocationVector = (new Vector3f(impactResult)).mul(event.getTravelDistance());
+            Vector3f vNewPosition = (new Vector3f(vImpactPoint)).add(vNewLocationVector);
+            Vector3f vNewVelocity = (new Vector3f(impactResult)).mul(speedFactor * COLLISION_DAMPENING_MULTIPLIER);
+
+            rigidBody.setLocation(vNewPosition);
+            rigidBody.setLinearVelocity(vNewVelocity);
+            rigidBody.setAngularVelocity(vNewVelocity);
+        }
+    }
+
     @Override
     public void update(float delta) {
 
@@ -152,6 +192,44 @@ public class PhysicsSystem extends BaseComponentSystem implements UpdateSubscrib
             if (body.isActive()) {
                 body.getLinearVelocity(comp.velocity);
                 body.getAngularVelocity(comp.angularVelocity);
+
+                Vector3f vLocation = Vector3f.zero();
+                body.getLocation(vLocation);
+
+                Vector3f vDirection = new Vector3f(comp.velocity);
+                float fDistanceThisFrame = vDirection.length();
+                vDirection.normalize();
+
+                fDistanceThisFrame = fDistanceThisFrame * delta;
+
+                while (true) {
+                    HitResult hitInfo = physics.rayTrace(vLocation, vDirection, fDistanceThisFrame + 0.5f, DEFAULT_COLLISION_GROUP);
+                    if (hitInfo.isHit()) {
+                        Block hitBlock = worldProvider.getBlock(hitInfo.getBlockPosition());
+                        if (hitBlock != null) {
+                            Vector3f vTravelledDistance = vLocation.sub(hitInfo.getHitPoint());
+                            float fTravelledDistance  = vTravelledDistance.length();
+                            if (fTravelledDistance > fDistanceThisFrame) {
+                                break;
+                            }
+                            if (hitBlock.isPenetrable()) {
+                                if (!hitInfo.getEntity().hasComponent(BlockComponent.class)) {
+                                    entity.send(new EntityImpactEvent(hitInfo.getHitPoint(), hitInfo.getHitNormal(), comp.velocity, fDistanceThisFrame, hitInfo.getEntity()));
+                                    break;
+                                }
+                                fDistanceThisFrame = fDistanceThisFrame - fTravelledDistance; // decrease the remaining distance to check if we hit a block
+                                vLocation = hitInfo.getHitPoint();
+                            } else {
+                                entity.send(new BlockImpactEvent(hitInfo.getHitPoint(), hitInfo.getHitNormal(), comp.velocity, fDistanceThisFrame, hitInfo.getEntity()));
+                                break;
+                            }
+                        } else {
+                            break;
+                        }
+                    } else  {
+                        break;
+                    }
+                }
             }
         }
 

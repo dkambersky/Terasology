@@ -1,5 +1,5 @@
 /*
- * Copyright 2013 MovingBlocks
+ * Copyright 2017 MovingBlocks
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,7 +18,6 @@ package org.terasology.world.block.entity;
 
 import com.google.common.base.Joiner;
 import com.google.common.collect.Lists;
-import org.terasology.utilities.Assets;
 import org.terasology.assets.ResourceUrn;
 import org.terasology.assets.management.AssetManager;
 import org.terasology.entitySystem.entity.EntityManager;
@@ -27,18 +26,26 @@ import org.terasology.entitySystem.prefab.Prefab;
 import org.terasology.entitySystem.prefab.PrefabManager;
 import org.terasology.entitySystem.systems.BaseComponentSystem;
 import org.terasology.entitySystem.systems.RegisterSystem;
+import org.terasology.input.cameraTarget.TargetSystem;
+import org.terasology.logic.characters.GazeAuthoritySystem;
 import org.terasology.logic.console.Console;
 import org.terasology.logic.console.commandSystem.annotations.Command;
 import org.terasology.logic.console.commandSystem.annotations.CommandParam;
 import org.terasology.logic.console.commandSystem.annotations.Sender;
 import org.terasology.logic.inventory.events.GiveItemEvent;
+import org.terasology.logic.location.LocationComponent;
 import org.terasology.logic.permission.PermissionManager;
 import org.terasology.logic.players.LocalPlayer;
 import org.terasology.network.ClientComponent;
+import org.terasology.physics.Physics;
 import org.terasology.registry.In;
 import org.terasology.registry.Share;
 import org.terasology.rendering.world.WorldRenderer;
+import org.terasology.utilities.Assets;
+import org.terasology.world.BlockEntityRegistry;
 import org.terasology.world.WorldProvider;
+import org.terasology.world.block.Block;
+import org.terasology.world.block.BlockComponent;
 import org.terasology.world.block.BlockExplorer;
 import org.terasology.world.block.BlockManager;
 import org.terasology.world.block.BlockUri;
@@ -46,19 +53,22 @@ import org.terasology.world.block.family.BlockFamily;
 import org.terasology.world.block.items.BlockItemFactory;
 import org.terasology.world.block.loader.BlockFamilyDefinition;
 import org.terasology.world.block.shapes.BlockShape;
+import org.terasology.world.internal.WorldProviderCoreImpl;
 
 import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
+ * Contains a series of handy game console commands associated with blocks.
  */
 @RegisterSystem
 @Share(BlockCommands.class)
 public class BlockCommands extends BaseComponentSystem {
-
+    private TargetSystem targetSystem;
     // TODO: Remove once camera is handled better
     @In
     private WorldRenderer renderer;
@@ -81,6 +91,18 @@ public class BlockCommands extends BaseComponentSystem {
     @In
     private EntityManager entityManager;
 
+    @In
+    private LocalPlayer player;
+
+    @In
+    private Physics physics;
+
+    @In
+    private BlockEntityRegistry blockRegistry;
+
+    @In
+    private WorldProviderCoreImpl worldImpl;
+
     private BlockItemFactory blockItemFactory;
     private BlockExplorer blockExplorer;
 
@@ -88,15 +110,20 @@ public class BlockCommands extends BaseComponentSystem {
     public void initialise() {
         blockItemFactory = new BlockItemFactory(entityManager);
         blockExplorer = new BlockExplorer(assetManager);
+        targetSystem = new TargetSystem(blockRegistry, physics);
     }
 
-    @Command(shortDescription = "Lists all available items (prefabs)",
+    @Command(shortDescription = "Lists all available items (prefabs)\nYou can filter by adding the beginning of words " +
+            "after the commands, e.g.: \"startsWith engine: core:\" will list all items from the engine and core module",
             requiredPermission = PermissionManager.CHEAT_PERMISSION)
-    public String listItems() {
+    public String listItems(@CommandParam(value = "startsWith",  required = false) String[] startsWith) {
 
         List<String> stringItems = Lists.newArrayList();
 
         for (Prefab prefab : prefabManager.listPrefabs()) {
+            if (!uriStartsWithAnyString(prefab.getName(), startsWith)) {
+                continue;
+            }
             stringItems.add(prefab.getName());
         }
 
@@ -113,9 +140,10 @@ public class BlockCommands extends BaseComponentSystem {
         return items.toString();
     }
 
-
-    @Command(shortDescription = "List all available blocks", requiredPermission = PermissionManager.CHEAT_PERMISSION)
-    public String listBlocks() {
+    @Command(shortDescription = "List all available blocks\nYou can filter by adding the beginning of words after the" +
+            "commands, e.g.: \"listBlocks engine: core:\" will list all blocks from the engine and core module",
+            requiredPermission = PermissionManager.CHEAT_PERMISSION)
+    public String listBlocks(@CommandParam(value = "startsWith", required = false) String[] startsWith) {
         StringBuilder stringBuilder = new StringBuilder();
         stringBuilder.append("Used Blocks");
         stringBuilder.append(Console.NEW_LINE);
@@ -123,6 +151,9 @@ public class BlockCommands extends BaseComponentSystem {
         stringBuilder.append(Console.NEW_LINE);
         List<BlockUri> registeredBlocks = sortItems(blockManager.listRegisteredBlockUris());
         for (BlockUri blockUri : registeredBlocks) {
+            if (!uriStartsWithAnyString(blockUri.toString(), startsWith)) {
+                continue;
+            }
             stringBuilder.append(blockUri.toString());
             stringBuilder.append(Console.NEW_LINE);
         }
@@ -134,6 +165,9 @@ public class BlockCommands extends BaseComponentSystem {
         stringBuilder.append(Console.NEW_LINE);
         List<BlockUri> availableBlocks = sortItems(blockExplorer.getAvailableBlockFamilies());
         for (BlockUri blockUri : availableBlocks) {
+            if (!uriStartsWithAnyString(blockUri.toString(), startsWith)) {
+                continue;
+            }
             stringBuilder.append(blockUri.toString());
             stringBuilder.append(Console.NEW_LINE);
         }
@@ -141,9 +175,10 @@ public class BlockCommands extends BaseComponentSystem {
         return stringBuilder.toString();
     }
 
-    @Command(shortDescription = "Lists all available shapes",
+    @Command(shortDescription = "Lists all available shapes\nYou can filter by adding the beginning of words after the" +
+            "commands, e.g.: \"listShapes engine: core:\" will list all shapes from the engine and core module",
             requiredPermission = PermissionManager.CHEAT_PERMISSION)
-    public String listShapes() {
+    public String listShapes(@CommandParam(value = "startsWith", required = false) String[] startsWith) {
         StringBuilder stringBuilder = new StringBuilder();
         stringBuilder.append("Shapes");
         stringBuilder.append(Console.NEW_LINE);
@@ -151,6 +186,9 @@ public class BlockCommands extends BaseComponentSystem {
         stringBuilder.append(Console.NEW_LINE);
         List<ResourceUrn> sortedUris = sortItems(Assets.list(BlockShape.class));
         for (ResourceUrn uri : sortedUris) {
+            if (!uriStartsWithAnyString(uri.toString(), startsWith)) {
+                continue;
+            }
             stringBuilder.append(uri.toString());
             stringBuilder.append(Console.NEW_LINE);
         }
@@ -159,9 +197,11 @@ public class BlockCommands extends BaseComponentSystem {
     }
 
     @Command(shortDescription = "Lists available free shape blocks",
-            helpText = "Lists all the available free shape blocks. These blocks can be created with any shape.",
+            helpText = "Lists all the available free shape blocks. These blocks can be created with any shape.\n" +
+                    "You can filter by adding the beginning of words after the commands, e.g.: \"listFreeShapeBlocks" +
+                    "engine: core:\" will list all free shape blocks from the engine and core module",
             requiredPermission = PermissionManager.CHEAT_PERMISSION)
-    public String listFreeShapeBlocks() {
+    public String listFreeShapeBlocks(@CommandParam(value = "startsWith", required = false) String[] startsWith) {
         StringBuilder stringBuilder = new StringBuilder();
         stringBuilder.append("Free Shape Blocks");
         stringBuilder.append(Console.NEW_LINE);
@@ -169,6 +209,9 @@ public class BlockCommands extends BaseComponentSystem {
         stringBuilder.append(Console.NEW_LINE);
         List<BlockUri> sortedUris = sortItems(blockExplorer.getFreeformBlockFamilies());
         for (BlockUri uri : sortedUris) {
+            if (!uriStartsWithAnyString(uri.toString(), startsWith)) {
+                continue;
+            }
             stringBuilder.append(uri.toString());
             stringBuilder.append(Console.NEW_LINE);
         }
@@ -176,9 +219,78 @@ public class BlockCommands extends BaseComponentSystem {
         return stringBuilder.toString();
     }
 
-    @Command(shortDescription = "Adds a block to your inventory",
-            helpText = "Puts a desired number of the given block with the give shape into your inventory",
+    @Command(shortDescription = "Replaces a block in front of user",
+            helpText = "Replaces a block in front of the user at the specified max distance", runOnServer =  true, requiredPermission = PermissionManager.CHEAT_PERMISSION)
+    public void replaceBlock(
+            @Sender EntityRef sender,
+            @CommandParam("blockName") String uri,
+            @CommandParam(value = "maxDistance", required = false) Integer maxDistanceParam) {
+        int maxDistance = maxDistanceParam != null ? maxDistanceParam : 12;
+        EntityRef playerEntity = sender.getComponent(ClientComponent.class).character;
+        EntityRef gazeEntity = GazeAuthoritySystem.getGazeEntityForCharacter(playerEntity);
+        LocationComponent gazeLocation = gazeEntity.getComponent(LocationComponent.class);
+        Set<ResourceUrn> matchingUris = Assets.resolveAssetUri(uri, BlockFamilyDefinition.class);
+        targetSystem.updateTarget(gazeLocation.getWorldPosition(), gazeLocation.getWorldDirection(), maxDistance);
+        EntityRef target = targetSystem.getTarget();
+        BlockComponent targetLocation = target.getComponent(BlockComponent.class);
+        if (matchingUris.size() == 1) {
+            Optional<BlockFamilyDefinition> def = Assets.get(matchingUris.iterator().next(), BlockFamilyDefinition.class);
+            if (def.isPresent()) {
+                BlockFamily blockFamily = blockManager.getBlockFamily(uri);
+                Block block = blockManager.getBlock(blockFamily.getURI());
+                world.setBlock(targetLocation.getPosition(), block);
+            } else if (matchingUris.size() > 1) {
+                StringBuilder builder = new StringBuilder();
+                builder.append("Non-unique shape name, possible matches: ");
+                Iterator<ResourceUrn> shapeUris = sortItems(matchingUris).iterator();
+                while (shapeUris.hasNext()) {
+                    builder.append(shapeUris.next().toString());
+                    if (shapeUris.hasNext()) {
+                        builder.append(", ");
+                    }
+                }
+            }
+        }
+    }
+
+    @Command(shortDescription = "Gives multiple stacks of blocks matching a search",
+            helpText = "Adds all blocks that match the search parameter into your inventory",
             runOnServer = true, requiredPermission = PermissionManager.CHEAT_PERMISSION)
+    public String bulkGiveBlock(
+            @Sender EntityRef sender,
+            @CommandParam("searched") String searched,
+            @CommandParam(value = "quantity", required = false) Integer quantityParam,
+            @CommandParam(value = "shapeName", required = false) String shapeUriParam) {
+        int quantity = quantityParam != null ? quantityParam : 16;
+        String searchLowercase = searched.toLowerCase();
+        List<String> blocks = findBlockMatches(searchLowercase);
+        String result = "Found " + blocks.size() + " block matches when searching for '" + searched + "'.";
+        if (blocks.size() > 0) {
+            result += "\nBlocks:";
+            for (String block : blocks) {
+                result += "\n" + block + "\n";
+                result += giveBlock(sender, block, quantityParam, shapeUriParam);
+            }
+        }
+        return result;
+    }
+
+    private List<String> findBlockMatches(String searchLowercase) {
+        return assetManager.getAvailableAssets(BlockFamilyDefinition.class)
+                .stream().<Optional<BlockFamilyDefinition>>map(urn -> assetManager.getAsset(urn, BlockFamilyDefinition.class))
+                .filter(def -> def.isPresent() && def.get().isLoadable() && matchesSearch(searchLowercase, def.get()))
+                .map(r -> new BlockUri(r.get().getUrn()).toString()).collect(Collectors.toList());
+    }
+
+    private static boolean matchesSearch(String searchLowercase, BlockFamilyDefinition def) {
+        return def.getUrn().toString().toLowerCase().contains(searchLowercase);
+    }
+
+    /**
+     * Called by 'give' command in ItemCommands.java to attempt to put a block in the player's inventory when no item is found.
+     * Called by 'giveBulkBlock' command in BlockCommands.java to put a block in the player's inventory.
+     * @return Null if not found, otherwise success or warning message
+     */
     public String giveBlock(
             @Sender EntityRef sender,
             @CommandParam("blockName") String uri,
@@ -195,10 +307,10 @@ public class BlockCommands extends BaseComponentSystem {
                     } else {
                         Set<ResourceUrn> resolvedShapeUris = Assets.resolveAssetUri(shapeUriParam, BlockShape.class);
                         if (resolvedShapeUris.isEmpty()) {
-                            throw new IllegalArgumentException("No shape found for '" + shapeUriParam + "'");
+                            return  "Found block. No shape found for '" + shapeUriParam + "'";
                         } else if (resolvedShapeUris.size() > 1) {
                             StringBuilder builder = new StringBuilder();
-                            builder.append("Non-unique shape name, possible matches: ");
+                            builder.append("Found block. Non-unique shape name, possible matches: ");
                             Iterator<ResourceUrn> shapeUris = sortItems(resolvedShapeUris).iterator();
                             while (shapeUris.hasNext()) {
                                 builder.append(shapeUris.next().toString());
@@ -214,17 +326,15 @@ public class BlockCommands extends BaseComponentSystem {
                 } else {
                     return giveBlock(blockManager.getBlockFamily(new BlockUri(def.get().getUrn())), quantity, sender);
                 }
-            } else {
-                throw new IllegalArgumentException("No block found for '" + uri + "'");
             }
-        } else if (matchingUris.isEmpty()) {
-            throw new IllegalArgumentException("No block found for '" + uri + "'");
-        } else {
+        } else if (matchingUris.size() > 1) {
             StringBuilder builder = new StringBuilder();
             builder.append("Non-unique block name, possible matches: ");
             Joiner.on(", ").appendTo(builder, matchingUris);
             return builder.toString();
         }
+
+        return null;
     }
 
     /**
@@ -235,19 +345,23 @@ public class BlockCommands extends BaseComponentSystem {
      */
     private String giveBlock(BlockFamily blockFamily, int quantity, EntityRef client) {
         if (quantity < 1) {
-            return "Here, have these zero (0) items just like you wanted";
+            return "Here, have these zero (0) blocks just like you wanted";
         }
+        //continue giving blocks until there are no more blocks to give
+        //TODO reference maxStackSize instead of explicitly subtracting 99 and introduce an upper bound? 10 million lags ..
+        for (int quantityLeft = quantity; quantityLeft > 0; quantityLeft -= 99) {
+            EntityRef item = blockItemFactory.newInstance(blockFamily, quantityLeft > 99 ? 99 : quantityLeft);
+            if (!item.exists()) {
+                throw new IllegalArgumentException("Unknown block or item");
+            }
 
-        EntityRef item = blockItemFactory.newInstance(blockFamily, quantity);
-        if (!item.exists()) {
-            throw new IllegalArgumentException("Unknown block or item");
-        }
-        EntityRef playerEntity = client.getComponent(ClientComponent.class).character;
+            EntityRef playerEntity = client.getComponent(ClientComponent.class).character;
 
-        GiveItemEvent giveItemEvent = new GiveItemEvent(playerEntity);
-        item.send(giveItemEvent);
-        if (!giveItemEvent.isHandled()) {
-            item.destroy();
+            GiveItemEvent giveItemEvent = new GiveItemEvent(playerEntity);
+            item.send(giveItemEvent);
+            if (!giveItemEvent.isHandled()) {
+                item.destroy();
+            }
         }
 
         return "You received " + quantity + " blocks of " + blockFamily.getDisplayName();
@@ -262,4 +376,21 @@ public class BlockCommands extends BaseComponentSystem {
         return result;
     }
 
+    /**
+     * Used to check if an item/prefab/etc name starts with a string that is in {@code uri}
+     * @param uri the name to be checked
+     * @param startsWithArray array of possible word to match at the beginning of {@code uri}
+     * @return true if {@code startsWithArray} is null, empty or {@code uri} starts with one of the elements in it
+     */
+    private boolean uriStartsWithAnyString(String uri, String[] startsWithArray) {
+        if (startsWithArray == null || startsWithArray.length == 0) {
+            return true;
+        }
+        for (String startsWith : startsWithArray) {
+            if (uri.startsWith(startsWith)) {
+                return true;
+            }
+        }
+        return false;
+    }
 }

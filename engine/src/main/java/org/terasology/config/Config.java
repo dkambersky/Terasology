@@ -54,6 +54,7 @@ import java.io.Reader;
 import java.lang.reflect.Type;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.Collections;
 import java.util.Map;
 import java.util.Optional;
@@ -62,9 +63,9 @@ import java.util.Set;
 /**
  * Terasology user config. Holds the various global configuration information that the user can modify. It can be saved
  * and loaded in a JSON format.
- *
  */
 public final class Config {
+    public static final String PROPERTY_OVERRIDE_DEFAULT_CONFIG = "org.terasology.config.default.override";
     private static final Logger logger = LoggerFactory.getLogger(Config.class);
 
     private RootConfig config;
@@ -112,6 +113,10 @@ public final class Config {
         return config.getSecurity();
     }
 
+    public NUIEditorConfig getNuiEditor() {
+        return config.getNuiEditor();
+    }
+
     public String renderConfigAsJson(Object configObject) {
         return createGson().toJsonTree(configObject).toString();
     }
@@ -134,12 +139,20 @@ public final class Config {
 
     public void load() {
         JsonObject jsonConfig = loadDefaultToJson();
-        Optional<JsonObject> userConfig = loadFileToJson();
+        Optional<JsonObject> defaultsConfig = loadFileToJson(getOverrideDefaultConfigFile());
+        if (defaultsConfig.isPresent()) {
+            merge(jsonConfig, defaultsConfig.get());
+        }
+        Optional<JsonObject> userConfig = loadFileToJson(getConfigFile());
         if (userConfig.isPresent()) {
             merge(jsonConfig, userConfig.get());
         }
 
         config = createGson().fromJson(jsonConfig, RootConfig.class);
+    }
+
+    private Path getOverrideDefaultConfigFile() {
+        return Paths.get(System.getProperty(PROPERTY_OVERRIDE_DEFAULT_CONFIG, ""));
     }
 
     public JsonObject loadDefaultToJson() {
@@ -150,8 +163,7 @@ public final class Config {
         }
     }
 
-    public Optional<JsonObject> loadFileToJson() {
-        Path configPath = getConfigFile();
+    public Optional<JsonObject> loadFileToJson(Path configPath) {
         if (Files.isRegularFile(configPath)) {
             try (Reader reader = Files.newBufferedReader(configPath, TerasologyConstants.CHARSET)) {
                 JsonElement userConfig = new JsonParser().parse(reader);

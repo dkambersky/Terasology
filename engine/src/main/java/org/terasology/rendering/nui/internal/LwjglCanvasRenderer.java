@@ -17,26 +17,24 @@ package org.terasology.rendering.nui.internal;
 
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-
 import org.lwjgl.BufferUtils;
 import org.lwjgl.opengl.Display;
 import org.lwjgl.opengl.GL11;
-import org.terasology.utilities.Assets;
 import org.terasology.assets.ResourceUrn;
 import org.terasology.assets.management.AssetManager;
 import org.terasology.context.Context;
 import org.terasology.math.AABB;
 import org.terasology.math.Border;
 import org.terasology.math.MatrixUtils;
-import org.terasology.math.geom.Rect2f;
-import org.terasology.math.geom.Rect2i;
 import org.terasology.math.TeraMath;
 import org.terasology.math.geom.BaseQuat4f;
 import org.terasology.math.geom.BaseVector2i;
-import org.terasology.math.geom.Vector2i;
 import org.terasology.math.geom.Matrix4f;
 import org.terasology.math.geom.Quat4f;
+import org.terasology.math.geom.Rect2f;
+import org.terasology.math.geom.Rect2i;
 import org.terasology.math.geom.Vector2f;
+import org.terasology.math.geom.Vector2i;
 import org.terasology.math.geom.Vector3f;
 import org.terasology.rendering.assets.font.Font;
 import org.terasology.rendering.assets.font.FontMeshBuilder;
@@ -52,6 +50,7 @@ import org.terasology.rendering.nui.TextLineBuilder;
 import org.terasology.rendering.nui.VerticalAlign;
 import org.terasology.rendering.opengl.FrameBufferObject;
 import org.terasology.rendering.opengl.LwjglFrameBufferObject;
+import org.terasology.utilities.Assets;
 
 import java.nio.FloatBuffer;
 import java.util.Iterator;
@@ -88,7 +87,6 @@ public class LwjglCanvasRenderer implements CanvasRenderer {
     private Matrix4f modelView;
     private FloatBuffer matrixBuffer = BufferUtils.createFloatBuffer(16);
     private Mesh billboard;
-    private Line line = new Line();
 
     private Material textureMat;
 
@@ -139,8 +137,8 @@ public class LwjglCanvasRenderer implements CanvasRenderer {
 
         requestedCropRegion = Rect2i.createFromMinAndSize(0, 0, Display.getWidth(), Display.getHeight());
         currentTextureCropRegion = requestedCropRegion;
-        textureMat.setFloat4(CROPPING_BOUNDARIES_PARAM, requestedCropRegion.minX(), requestedCropRegion.maxX() + 1
-                , requestedCropRegion.minY(), requestedCropRegion.maxY() + 1);
+        textureMat.setFloat4(CROPPING_BOUNDARIES_PARAM, requestedCropRegion.minX(), requestedCropRegion.maxX(),
+                requestedCropRegion.minY(), requestedCropRegion.maxY());
     }
 
     @Override
@@ -199,7 +197,7 @@ public class LwjglCanvasRenderer implements CanvasRenderer {
         finalMat.mul(translateTransform);
         MatrixUtils.matrixToFloatBuffer(finalMat, matrixBuffer);
 
-        material.setFloat4(CROPPING_BOUNDARIES_PARAM, cropRegion.minX(), cropRegion.maxX() + 1, cropRegion.minY(), cropRegion.maxY() + 1);
+        material.setFloat4(CROPPING_BOUNDARIES_PARAM, cropRegion.minX(), cropRegion.maxX(), cropRegion.minY(), cropRegion.maxY());
         material.setMatrix4("posMatrix", translateTransform);
         glEnable(GL11.GL_DEPTH_TEST);
         glClear(GL11.GL_DEPTH_BUFFER_BIT);
@@ -239,7 +237,7 @@ public class LwjglCanvasRenderer implements CanvasRenderer {
 
     @Override
     public void drawLine(int sx, int sy, int ex, int ey, Color color) {
-        line.draw(sx, sy, ex, ey, 2, color, color, 0);
+        Line.draw(sx, sy, ex, ey, 2, color, color, 0);
     }
 
     @Override
@@ -271,8 +269,8 @@ public class LwjglCanvasRenderer implements CanvasRenderer {
 
         if (!currentTextureCropRegion.equals(requestedCropRegion)
                 && !(currentTextureCropRegion.contains(absoluteRegion) && requestedCropRegion.contains(absoluteRegion))) {
-            textureMat.setFloat4(CROPPING_BOUNDARIES_PARAM, requestedCropRegion.minX(), requestedCropRegion.maxX() + 1,
-                    requestedCropRegion.minY(), requestedCropRegion.maxY() + 1);
+            textureMat.setFloat4(CROPPING_BOUNDARIES_PARAM, requestedCropRegion.minX(), requestedCropRegion.maxX(),
+                    requestedCropRegion.minY(), requestedCropRegion.maxY());
             currentTextureCropRegion = requestedCropRegion;
         }
 
@@ -306,8 +304,8 @@ public class LwjglCanvasRenderer implements CanvasRenderer {
                 float texBorderX = (scale.x - absoluteRegion.width()) / scale.x * uw;
                 float texBorderY = (scale.y - absoluteRegion.height()) / scale.y * uh;
 
-                textureMat.setFloat2("texOffset", textureArea.minX() + (ux + 0.5f * texBorderX) * textureArea.width()
-                        , textureArea.minY() + (uy + 0.5f * texBorderY) * textureArea.height());
+                textureMat.setFloat2("texOffset", textureArea.minX() + (ux + 0.5f * texBorderX) * textureArea.width(),
+                        textureArea.minY() + (uy + 0.5f * texBorderY) * textureArea.height());
                 textureMat.setFloat2("texSize", (uw - texBorderX) * textureArea.width(), (uh - texBorderY) * textureArea.height());
                 break;
             }
@@ -354,8 +352,8 @@ public class LwjglCanvasRenderer implements CanvasRenderer {
 
         fontMesh.entrySet().stream().filter(entry -> entry.getKey().isRenderable()).forEach(entry -> {
             entry.getKey().bindTextures();
-            entry.getKey().setFloat4(CROPPING_BOUNDARIES_PARAM, requestedCropRegion.minX(), requestedCropRegion.maxX() + 1,
-                    requestedCropRegion.minY(), requestedCropRegion.maxY() + 1);
+            entry.getKey().setFloat4(CROPPING_BOUNDARIES_PARAM, requestedCropRegion.minX(), requestedCropRegion.maxX(),
+                    requestedCropRegion.minY(), requestedCropRegion.maxY());
             entry.getKey().setFloat2("offset", offset.x, offset.y);
             entry.getKey().setFloat("alpha", alpha);
             entry.getValue().render();
@@ -370,8 +368,8 @@ public class LwjglCanvasRenderer implements CanvasRenderer {
 
         if (!currentTextureCropRegion.equals(requestedCropRegion)
                 && !(currentTextureCropRegion.contains(region) && requestedCropRegion.contains(region))) {
-            textureMat.setFloat4(CROPPING_BOUNDARIES_PARAM, requestedCropRegion.minX(), requestedCropRegion.maxX() + 1,
-                    requestedCropRegion.minY(), requestedCropRegion.maxY() + 1);
+            textureMat.setFloat4(CROPPING_BOUNDARIES_PARAM, requestedCropRegion.minX(), requestedCropRegion.maxX(),
+                    requestedCropRegion.minY(), requestedCropRegion.maxY());
             currentTextureCropRegion = requestedCropRegion;
         }
 
@@ -523,7 +521,7 @@ public class LwjglCanvasRenderer implements CanvasRenderer {
         private final Color shadowColor;
         private final boolean underlined;
 
-        public TextCacheKey(String text, Font font, int maxWidth, HorizontalAlign alignment, Color baseColor, Color shadowColor, boolean underlined) {
+        TextCacheKey(String text, Font font, int maxWidth, HorizontalAlign alignment, Color baseColor, Color shadowColor, boolean underlined) {
             this.text = text;
             this.font = font;
             this.width = maxWidth;
@@ -564,14 +562,14 @@ public class LwjglCanvasRenderer implements CanvasRenderer {
         private Border border;
         private boolean tiled;
 
-        public TextureCacheKey(Vector2i textureSize, Vector2i areaSize) {
+        TextureCacheKey(Vector2i textureSize, Vector2i areaSize) {
             this.textureSize = new Vector2i(textureSize);
             this.areaSize = new Vector2i(areaSize);
             this.border = Border.ZERO;
             this.tiled = true;
         }
 
-        public TextureCacheKey(Vector2i textureSize, Vector2i areaSize, Border border, boolean tiled) {
+        TextureCacheKey(Vector2i textureSize, Vector2i areaSize, Border border, boolean tiled) {
             this.textureSize = new Vector2i(textureSize);
             this.areaSize = new Vector2i(areaSize);
             this.border = border;

@@ -21,7 +21,7 @@
             {
                 "type": "UILabel",
                 "family": "title",
-                "text": "Input Settings",
+                "text": "${engine:menu#input-settings-title}",
                 "id": "subtitle",
                 "layoutInfo": {
                     "height": 48,
@@ -51,28 +51,28 @@
                 }
             },
             {
-                "type" : "RowLayout",
-                "id" : "actionsRow",
-                "horizontalSpacing" : 8,
-                "contents" : [
+                "type": "RowLayout",
+                "id": "actionsRow",
+                "horizontalSpacing": 8,
+                "contents": [
                     {
-                        "type" : "UIButton",
-                        "text" : "Restore Defaults",
-                        "id" : "reset"
+                        "type": "UIButton",
+                        "text": "${engine:menu#restore-defaults}",
+                        "id": "reset"
                     },
                     {
-                        "type" : "UIButton",
-                        "text" : "${engine:menu#back}",
-                        "id" : "back"
+                        "type": "UIButton",
+                        "text": "${engine:menu#back}",
+                        "id": "back"
                     }
                 ],
-                "layoutInfo" : {
-                    "width" : 400,
-                    "height" : 32,
-                    "position-horizontal-center" : {},
-                    "position-bottom" : {
-                        "target" : "BOTTOM",
-                        "offset" : 48
+                "layoutInfo": {
+                    "width": 400,
+                    "height": 32,
+                    "position-horizontal-center": {},
+                    "position-bottom": {
+                        "target": "BOTTOM",
+                        "offset": 48
                     }
                 }
             }

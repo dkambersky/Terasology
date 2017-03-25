@@ -1,5 +1,5 @@
 /*
- * Copyright 2014 MovingBlocks
+ * Copyright 2016 MovingBlocks
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -39,8 +39,6 @@ import org.terasology.rendering.nui.widgets.UIList;
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- */
 public class ItemIcon extends CoreWidget {
 
     @LayoutConfig
@@ -58,6 +56,7 @@ public class ItemIcon extends CoreWidget {
 
     public ItemIcon() {
         tooltip = new UIList<>();
+        tooltip.setInteractive(false);
         tooltip.setSelectable(false);
         final UISkin defaultSkin = Assets.getSkin("core:itemTooltip").get();
         tooltip.setSkin(defaultSkin);
@@ -84,6 +83,12 @@ public class ItemIcon extends CoreWidget {
 
     @Override
     public Vector2i getPreferredContentSize(Canvas canvas, Vector2i sizeHint) {
+        if (icon != null) {
+            TextureRegion texture = icon.get();
+            if  (texture != null) {
+                return texture.size();
+            }
+        }
         return new Vector2i();
     }
 

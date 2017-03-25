@@ -58,9 +58,12 @@ import org.terasology.world.time.WorldTime;
 import org.terasology.world.time.WorldTimeImpl;
 
 import java.util.Collection;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  */
@@ -183,13 +186,15 @@ public class WorldProviderCoreImpl implements WorldProviderCore {
 
     @Override
     public Block setBlock(Vector3i worldPos, Block type) {
+        /*
+         * Hint: This method has a benchmark available in the BenchmarkScreen, The screen can be opened ingame via the
+         * command "showSCreen BenchmarkScreen".
+         */
         Vector3i chunkPos = ChunkMath.calcChunkPos(worldPos);
         CoreChunk chunk = chunkProvider.getChunk(chunkPos);
         if (chunk != null) {
             Vector3i blockPos = ChunkMath.calcBlockPos(worldPos);
-            chunk.writeLock();
             Block oldBlockType = chunk.setBlock(blockPos, type);
-            chunk.writeUnlock();
             if (oldBlockType != type) {
                 BlockChange oldChange = blockChanges.get(worldPos);
                 if (oldChange == null) {
@@ -209,6 +214,56 @@ public class WorldProviderCoreImpl implements WorldProviderCore {
 
         }
         return null;
+    }
+
+    @Override
+    public Map<Vector3i, Block> setBlocks(Map<Vector3i, Block> blocks) {
+        /*
+         * Hint: This method has a benchmark available in the BenchmarkScreen, The screen can be opened ingame via the
+         * command "showSCreen BenchmarkScreen".
+         */
+        Set<RenderableChunk> dirtiedChunks = new HashSet<>();
+        Set<BlockChange> changedBlocks = new HashSet<>();
+        Map<Vector3i, Block> result = new HashMap<>(blocks.size());
+
+        for (Map.Entry<Vector3i, Block> entry : blocks.entrySet()) {
+            Vector3i worldPos = entry.getKey();
+            Vector3i chunkPos = ChunkMath.calcChunkPos(worldPos);
+            CoreChunk chunk = chunkProvider.getChunk(chunkPos);
+
+            if (chunk != null) {
+                Block type = entry.getValue();
+                Vector3i blockPos = ChunkMath.calcBlockPos(worldPos);
+                Block oldBlockType = chunk.setBlock(blockPos, type);
+                if (oldBlockType != type) {
+                    BlockChange oldChange = blockChanges.get(worldPos);
+                    if (oldChange == null) {
+                        blockChanges.put(worldPos, new BlockChange(worldPos, oldBlockType, type));
+                    } else {
+                        oldChange.setTo(type);
+                    }
+                    for (Vector3i pos : ChunkMath.getChunkRegionAroundWorldPos(worldPos, 1)) {
+                        RenderableChunk dirtiedChunk = chunkProvider.getChunk(pos);
+                        if (dirtiedChunk != null) {
+                            dirtiedChunks.add(dirtiedChunk);
+                        }
+                    }
+                    changedBlocks.add(new BlockChange(worldPos, oldBlockType, type));
+                }
+                result.put(worldPos, oldBlockType);
+            } else {
+                result.put(worldPos, null);
+            }
+        }
+
+        for (RenderableChunk chunk : dirtiedChunks) {
+            chunk.setDirty(true);
+        }
+        for (BlockChange change : changedBlocks) {
+            notifyBlockChanged(change.getPosition(), change.getTo(), change.getFrom());
+        }
+
+        return result;
     }
 
     private void notifyBlockChanged(Vector3i pos, Block type, Block oldType) {
@@ -236,16 +291,11 @@ public class WorldProviderCoreImpl implements WorldProviderCore {
         Vector3i chunkPos = ChunkMath.calcChunkPos(x, y, z);
         CoreChunk chunk = chunkProvider.getChunk(chunkPos);
         if (chunk != null) {
-            chunk.writeLock();
-            try {
-                Vector3i blockPos = ChunkMath.calcBlockPos(x, y, z);
-                LiquidData liquidState = chunk.getLiquid(blockPos);
-                if (liquidState.equals(oldState)) {
-                    chunk.setLiquid(blockPos, newState);
-                    return true;
-                }
-            } finally {
-                chunk.writeUnlock();
+            Vector3i blockPos = ChunkMath.calcBlockPos(x, y, z);
+            LiquidData liquidState = chunk.getLiquid(blockPos);
+            if (liquidState.equals(oldState)) {
+                chunk.setLiquid(blockPos, newState);
+                return true;
             }
         }
         return false;
@@ -264,11 +314,9 @@ public class WorldProviderCoreImpl implements WorldProviderCore {
 
     @Override
     public Block getBlock(int x, int y, int z) {
-        Vector3i chunkPos = ChunkMath.calcChunkPos(x, y, z);
-        CoreChunk chunk = chunkProvider.getChunk(chunkPos);
+        CoreChunk chunk = chunkProvider.getChunk(ChunkMath.calcChunkPosX(x), ChunkMath.calcChunkPosY(y), ChunkMath.calcChunkPosZ(z));
         if (chunk != null) {
-            Vector3i blockPos = ChunkMath.calcBlockPos(x, y, z);
-            return chunk.getBlock(blockPos);
+            return chunk.getBlock(ChunkMath.calcBlockPosX(x), ChunkMath.calcBlockPosY(y), ChunkMath.calcBlockPosZ(z));
         }
         return unloadedBlock;
     }
@@ -290,9 +338,7 @@ public class WorldProviderCoreImpl implements WorldProviderCore {
         CoreChunk chunk = chunkProvider.getChunk(chunkPos);
         if (chunk != null) {
             Vector3i blockPos = ChunkMath.calcBlockPos(worldPos);
-            chunk.writeLock();
             Biome oldBiomeType = chunk.setBiome(blockPos.x, blockPos.y, blockPos.z, biome);
-            chunk.writeUnlock();
             if (oldBiomeType != biome) {
                 BiomeChange oldChange = biomeChanges.get(worldPos);
                 if (oldChange == null) {

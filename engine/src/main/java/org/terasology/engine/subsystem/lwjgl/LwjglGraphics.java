@@ -1,5 +1,5 @@
 /*
- * Copyright 2015 MovingBlocks
+ * Copyright 2016 MovingBlocks
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -137,7 +137,7 @@ public class LwjglGraphics extends BaseLwjglSubsystem {
                     } else {
                         return path.getName(2).toString().equals("textures");
                     }
-                }));
+                    }));
         assetTypeManager.registerCoreFormat(Texture.class,
                 new PNGTextureFormat(Texture.FilterMode.LINEAR, path -> {
                     if (path.getName(1).toString().equals(ModuleAssetDataProducer.OVERRIDE_FOLDER)) {
@@ -213,11 +213,12 @@ public class LwjglGraphics extends BaseLwjglSubsystem {
     }
 
     private void initDisplay() {
-        logger.info("Initializing display");
-        try {
-            lwjglDisplay.setFullscreen(config.isFullscreen(), false);
+        logger.info("Initializing display (if last line in log then likely the game crashed from an issue with your video card)");
 
-            Display.setLocation(config.getWindowPosX(), config.getWindowPosY());
+        try {
+
+            lwjglDisplay.setDisplayModeSetting(config.getDisplayModeSetting(), false);
+
             Display.setTitle("Terasology" + " | " + "Alpha");
             try {
 
@@ -245,7 +246,12 @@ public class LwjglGraphics extends BaseLwjglSubsystem {
                     ContextAttribs ctxAttribs = new ContextAttribs().withDebug(true);
                     Display.create(config.getPixelFormat(), ctxAttribs);
 
-                    GL43.glDebugMessageCallback(new KHRDebugCallback(new DebugCallback()));
+                    try {
+                        GL43.glDebugMessageCallback(new KHRDebugCallback(new DebugCallback()));
+                    } catch (IllegalStateException e) {
+                        logger.warn("Unable to specify DebugCallback to receive debugging messages from the GL.");
+                    }
+
                 } catch (LWJGLException e) {
                     logger.warn("Unable to create an OpenGL debug context. Maybe your graphics card does not support it.", e);
                     Display.create(config.getPixelFormat()); // Create a normal context instead
@@ -322,7 +328,7 @@ public class LwjglGraphics extends BaseLwjglSubsystem {
                 "If that fails you might need to use a different GPU (graphics card). Sorry!\n";
     }
 
-    public void initOpenGLParams() {
+    public static void initOpenGLParams() {
         glEnable(GL_CULL_FACE);
         glEnable(GL_DEPTH_TEST);
         glEnable(GL_NORMALIZE);

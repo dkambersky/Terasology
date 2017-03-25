@@ -15,14 +15,13 @@
  */
 package org.terasology.rendering.nui.layers.mainMenu.inputSettings;
 
-import java.util.List;
-
 import org.terasology.assets.ResourceUrn;
 import org.terasology.config.BindsConfig;
 import org.terasology.config.Config;
 import org.terasology.context.Context;
 import org.terasology.engine.SimpleUri;
 import org.terasology.engine.module.ModuleManager;
+import org.terasology.i18n.TranslationSystem;
 import org.terasology.input.Input;
 import org.terasology.input.InputSystem;
 import org.terasology.input.RegisterBindButton;
@@ -31,6 +30,8 @@ import org.terasology.rendering.nui.CoreScreenLayer;
 import org.terasology.rendering.nui.WidgetUtil;
 import org.terasology.rendering.nui.widgets.UIButton;
 import org.terasology.rendering.nui.widgets.UILabel;
+
+import java.util.List;
 
 
 public class ChangeBindingPopup extends CoreScreenLayer {
@@ -47,11 +48,15 @@ public class ChangeBindingPopup extends CoreScreenLayer {
     private InputSystem inputSystem;
 
     @In
+    private TranslationSystem translationSystem;
+
+    @In
     private Context context;
 
     private UIInputBind bindButton;
 
     private BindsConfig defaultBinds;
+    private BindsConfig currBinds;
 
     @Override
     public void initialise() {
@@ -60,19 +65,26 @@ public class ChangeBindingPopup extends CoreScreenLayer {
         bindButton = find("new-binding", UIInputBind.class);
         WidgetUtil.trySubscribe(this, "remove", button -> bindButton.setNewInput(null));
         WidgetUtil.trySubscribe(this, "ok", button -> {
-            bindButton.saveInput();
-            getManager().popScreen();
+            Input newInput = bindButton.getNewInput();
+            currBinds = config.getInput().getBinds();
+            if (currBinds.isBound(newInput) && !newInput.equals(bindButton.getInput())) {
+                ConfirmChangePopup popup = getManager().pushScreen(ConfirmChangePopup.ASSET_URI, ConfirmChangePopup.class);
+                popup.setButtonData(bindButton);
+            } else {
+                bindButton.saveInput();
+                getManager().popScreen();
+            }
         });
         WidgetUtil.trySubscribe(this, "cancel", button -> getManager().popScreen());
     }
 
     public void setBindingData(SimpleUri uri, RegisterBindButton bind, int index) {
-        find("title", UILabel.class).setText(bind.description());
+        find("title", UILabel.class).setText(translationSystem.translate(bind.description()));
         BindsConfig bindConfig = config.getInput().getBinds();
         bindButton.bindInput(new InputConfigBinding(bindConfig, uri, index));
         List<Input> defaults = defaultBinds.getBinds(uri);
         find("default-binding", UILabel.class).setText(
-                defaults.size() > index ? defaults.get(index).getDisplayName() : "<none>");
+                defaults.size() > index ? defaults.get(index).getDisplayName() : "<" + translationSystem.translate("${engine:menu#none}" + ">"));
         find("default", UIButton.class).subscribe(e -> bindButton.setNewInput(
                 defaults.size() > index ? defaults.get(index) : null));
     }

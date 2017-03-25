@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- *  http://www.apache.org/licenses/LICENSE-2.0
+ *      http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -35,6 +35,9 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
+ * A scrollable dropdown widget.
+ *
+ * @param <T> the list element type
  */
 public class UIDropdownScrollable<T> extends UIDropdown<T> {
     private static final String LIST = "list";
@@ -45,6 +48,9 @@ public class UIDropdownScrollable<T> extends UIDropdown<T> {
 
     private Binding<List<T>> options = new DefaultBinding<>(new ArrayList<>());
     private Binding<T> selection = new DefaultBinding<>();
+    private List<InteractionListener> optionListeners = Lists.newArrayList();
+    private ItemRenderer<T> optionRenderer = new ToStringTextRenderer<>();
+    private boolean opened;
     private InteractionListener mainListener = new BaseInteractionListener() {
         @Override
         public boolean onMouseClick(NUIMouseClickEvent event) {
@@ -65,10 +71,6 @@ public class UIDropdownScrollable<T> extends UIDropdown<T> {
             return true;
         }
     };
-    private List<InteractionListener> optionListeners = Lists.newArrayList();
-    private ItemRenderer<T> optionRenderer = new ToStringTextRenderer<>();
-
-    private boolean opened;
 
     public UIDropdownScrollable() {
     }
@@ -91,18 +93,20 @@ public class UIDropdownScrollable<T> extends UIDropdown<T> {
             }
         }
 
-        if (opened) {
+        if (!isEnabled()) {
+            // do not open and do not add an interaction region
+        } else if (opened) {
             canvas.setPart(LIST);
             canvas.setDrawOnTop(true);
             Font font = canvas.getCurrentStyle().getFont();
             Border itemMargin = canvas.getCurrentStyle().getMargin();
 
             // Limit number of visible options
-            int optionsSize = options.get().size() <= visibleOptionsNum ? options.get().size() : visibleOptionsNum;
+            float optionsSize = options.get().size() <= visibleOptionsNum ? options.get().size() : (visibleOptionsNum + 0.5f);
 
             // Calculate total options height
             int itemHeight = itemMargin.getTotalHeight() + font.getLineHeight();
-            int height = itemHeight * optionsSize + canvas.getCurrentStyle().getBackgroundBorder().getTotalHeight();
+            int height = (int) (itemHeight * optionsSize + canvas.getCurrentStyle().getBackgroundBorder().getTotalHeight());
             canvas.addInteractionRegion(mainListener, Rect2i.createFromMinAndSize(0, 0, canvas.size().x, canvas.size().y + height));
 
             // Dropdown Background Frame
@@ -123,7 +127,8 @@ public class UIDropdownScrollable<T> extends UIDropdown<T> {
 
     /**
      * Located in the onDraw method, this draws the menu items when the scrollbar is unnecessary.
-     * @param canvas {@link Canvas} from the onDraw method.
+     *
+     * @param canvas     {@link Canvas} from the onDraw method.
      * @param itemMargin Margin around every menu item.
      * @param itemHeight Height per menu item.
      */
@@ -137,11 +142,12 @@ public class UIDropdownScrollable<T> extends UIDropdown<T> {
 
     /**
      * Located in the onDraw method, this draws the menu items with a scrollbar.
-     * @param canvas {@link Canvas} from the onDraw method.
-     * @param frame Menu frame.
-     * @param font {@link Font} used in the menu.
+     *
+     * @param canvas     {@link Canvas} from the onDraw method.
+     * @param frame      Menu frame.
+     * @param font       {@link Font} used in the menu.
      * @param itemMargin Margin around every menu item.
-     * @param height Total menu height.
+     * @param height     Total menu height.
      * @param itemHeight Height per menu item.
      */
     private void createScrollbarItems(Canvas canvas, Rect2i frame, Font font, Border itemMargin, int height, int itemHeight) {
@@ -159,6 +165,10 @@ public class UIDropdownScrollable<T> extends UIDropdown<T> {
         Rect2i scrollbarRegion = Rect2i.createFromMinAndSize(scrollbarXPos, scrollbarYPos, scrollbarWidth, scrollbarHeight);
         canvas.drawWidget(verticalBar, scrollbarRegion);
 
+        // Set the range of Scrollbar
+        float maxVertBarDesired = itemHeight * (optionListeners.size() - visibleOptionsNum - 0.5f) + itemMargin.getBottom();
+        verticalBar.setRange((int) maxVertBarDesired);
+
         for (int i = 0; i < optionListeners.size(); ++i) {
             readItemMouseOver(canvas, i);
             Rect2i itemRegion = Rect2i.createFromMinAndSize(0, itemHeight * i - verticalBar.getValue(), availableWidth, itemHeight);
@@ -172,8 +182,9 @@ public class UIDropdownScrollable<T> extends UIDropdown<T> {
 
     /**
      * Looks for MouseOver event for every item in the menu.
+     *
      * @param canvas {@link Canvas} from the onDraw method.
-     * @param i Item index.
+     * @param i      Item index.
      */
     private void readItemMouseOver(Canvas canvas, int i) {
         if (optionListeners.get(i).isMouseOver()) {
@@ -185,9 +196,10 @@ public class UIDropdownScrollable<T> extends UIDropdown<T> {
 
     /**
      * Draws the item on the {@link Canvas}.
-     * @param canvas {@link Canvas} from the onDraw method.
+     *
+     * @param canvas     {@link Canvas} from the onDraw method.
      * @param itemMargin Margin around every menu item.
-     * @param i Item index.
+     * @param i          Item index.
      * @param itemRegion Region of the item in the menu.
      */
     private void drawItem(Canvas canvas, Border itemMargin, int i, Rect2i itemRegion) {
@@ -211,10 +223,16 @@ public class UIDropdownScrollable<T> extends UIDropdown<T> {
         options = binding;
     }
 
+    /**
+     * @return A List containing all the options.
+     */
     public List<T> getOptions() {
         return options.get();
     }
 
+    /**
+     * @param values A List containing the new options.
+     */
     public void setOptions(List<T> values) {
         this.options.set(values);
     }
@@ -223,30 +241,46 @@ public class UIDropdownScrollable<T> extends UIDropdown<T> {
         this.selection = binding;
     }
 
+    /**
+     * @return The currently selected item.
+     */
     public T getSelection() {
         return selection.get();
     }
+
+    /**
+     * @param value The item to set as selected.
+     */
 
     public void setSelection(T value) {
         selection.set(value);
     }
 
+    /**
+     * @param itemRenderer The new item renderer.
+     */
     public void setOptionRenderer(ItemRenderer<T> itemRenderer) {
         optionRenderer = itemRenderer;
     }
 
-    public void setVisibleOptions(int num) {
-        visibleOptionsNum = num;
-    }
-
+    /**
+     * @return The number of options visible.
+     */
     public int getVisibleOptions() {
         return visibleOptionsNum;
+    }
+
+    /**
+     * @param num The number of visible options.
+     */
+    public void setVisibleOptions(int num) {
+        visibleOptionsNum = num;
     }
 
     private class ItemListener extends BaseInteractionListener {
         private int index;
 
-        public ItemListener(int index) {
+        ItemListener(int index) {
             this.index = index;
         }
 

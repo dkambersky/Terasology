@@ -1,5 +1,5 @@
 /*
- * Copyright 2014 MovingBlocks
+ * Copyright 2016 MovingBlocks
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -32,6 +32,7 @@ import org.terasology.rendering.assets.texture.TextureUtil;
 import org.terasology.rendering.nui.Color;
 import org.terasology.rendering.nui.CoreScreenLayer;
 import org.terasology.rendering.nui.WidgetUtil;
+import org.terasology.rendering.nui.animation.MenuAnimationSystems;
 import org.terasology.rendering.nui.databinding.DefaultBinding;
 import org.terasology.rendering.nui.databinding.ReadOnlyBinding;
 import org.terasology.rendering.nui.widgets.UIButton;
@@ -44,10 +45,11 @@ import java.math.RoundingMode;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Collections;
 
-/**
- */
 public class PlayerSettingsScreen extends CoreScreenLayer {
+
+    public static final ResourceUrn ASSET_URI = new ResourceUrn("engine:PlayerMenuScreen");
 
     @In
     private Config config;
@@ -56,8 +58,20 @@ public class PlayerSettingsScreen extends CoreScreenLayer {
 
     private final List<Color> colors = CieCamColors.L65C65;
 
+    /**
+     * Remove language x from this languagesExcluded table when it is ready for testing
+     */
+    private final Locale[] languagesExcluded =
+            {Locale.forLanguageTag("zh"), // TODO: Chinese symbols not yet available
+            Locale.forLanguageTag("hi"), // TODO: Hindi (Indian) symbols not yet available
+            Locale.forLanguageTag("ar"), // TODO: Arabic symbols not yet available, no translated entries yet
+            Locale.forLanguageTag("ko"), // TODO: Korean symbols not yet available
+            Locale.forLanguageTag("fa")}; // TODO: Farsi (Persian) symbols not yet available
+
     private UIText nametext;
     private UISlider slider;
+    private UISlider heightSlider;
+    private UISlider eyeHeightSlider;
     private UIImage img;
     private UIDropdownScrollable<Locale> language;
 
@@ -71,6 +85,12 @@ public class PlayerSettingsScreen extends CoreScreenLayer {
             Color color = config.getPlayer().getColor();
             slider.bindValue(new NotifyingBinding(findClosestIndex(color)));
         }
+        if (heightSlider != null) {
+            heightSlider.bindValue(new NotifyingBinding(config.getPlayer().getHeight()));
+        }
+        if (eyeHeightSlider != null) {
+            eyeHeightSlider.bindValue(new NotifyingBinding(config.getPlayer().getEyeHeight()));
+        }
         if (language != null) {
             language.setSelection(config.getSystem().getLocale());
         }
@@ -79,6 +99,7 @@ public class PlayerSettingsScreen extends CoreScreenLayer {
 
     @Override
     public void initialise() {
+        setAnimationSystem(MenuAnimationSystems.createDefaultSwipeAnimation());
         nametext = find("playername", UIText.class);
         if (nametext != null) {
             nametext.setTooltipDelay(0);
@@ -90,6 +111,12 @@ public class PlayerSettingsScreen extends CoreScreenLayer {
             });
         }
         img = find("image", UIImage.class);
+        if (img != null) {
+            ResourceUrn uri = TextureUtil.getTextureUriForColor(Color.WHITE);
+            Texture tex = Assets.get(uri, Texture.class).get();
+            img.setImage(tex);
+        }
+
         slider = find("tone", UISlider.class);
         if (slider != null) {
             slider.setIncrement(0.01f);
@@ -97,23 +124,43 @@ public class PlayerSettingsScreen extends CoreScreenLayer {
             slider.setLabelFunction(constant);
         }
 
+        heightSlider = find("height", UISlider.class);
+        if (heightSlider != null) {
+            heightSlider.setMinimum(1.5f);
+            heightSlider.setIncrement(0.1f);
+            heightSlider.setRange(0.5f);
+            heightSlider.setPrecision(1);
+        }
+
+        eyeHeightSlider = find("eye-height", UISlider.class);
+        if (eyeHeightSlider != null) {
+            eyeHeightSlider.setMinimum(0.5f);
+            eyeHeightSlider.setIncrement(0.1f);
+            eyeHeightSlider.setRange(1f);
+            eyeHeightSlider.setPrecision(1);
+        }
+
         language = find("language", UIDropdownScrollable.class);
         if (language != null) {
             SimpleUri menuUri = new SimpleUri("engine:menu");
             TranslationProject menuProject = translationSystem.getProject(menuUri);
             List<Locale> locales = new ArrayList<>(menuProject.getAvailableLocales());
+            for (Locale languageExcluded : languagesExcluded) {
+                locales.remove(languageExcluded);
+            }
+            Collections.sort(locales, ((Object o1, Object o2) -> (o1.toString().compareTo(o2.toString()))));
             language.setOptions(Lists.newArrayList(locales));
             language.setVisibleOptions(5); // Set maximum number of options visible for scrolling
             language.setOptionRenderer(new LocaleRenderer(translationSystem));
         }
 
-        WidgetUtil.trySubscribe(this, "close", button -> getManager().popScreen());
+        WidgetUtil.trySubscribe(this, "close", button -> triggerBackAnimation());
 
         UIButton okButton = find("ok", UIButton.class);
         if (okButton != null) {
             okButton.subscribe(button -> {
                 savePlayerSettings();
-                getManager().popScreen();
+                triggerBackAnimation();
             });
             okButton.bindEnabled(new ReadOnlyBinding<Boolean>() {
                 @Override
@@ -168,10 +215,8 @@ public class PlayerSettingsScreen extends CoreScreenLayer {
 
     private void updateImage() {
         Color color = getColor();
-        ResourceUrn uri = TextureUtil.getTextureUriForColor(color);
-        Texture tex = Assets.get(uri, Texture.class).get();
         if (img != null) {
-            img.setImage(tex);
+            img.setTint(color);
         }
     }
 
@@ -184,9 +229,31 @@ public class PlayerSettingsScreen extends CoreScreenLayer {
         }
     }
 
+    private Float getHeight() {
+        if (heightSlider != null) {
+            float index = heightSlider.getValue();
+            return index;
+        } else {
+            return config.getPlayer().getHeight();
+        }
+    }
+
+    private Float getEyeHeight() {
+        if (eyeHeightSlider != null) {
+            float index = eyeHeightSlider.getValue();
+            return index;
+        } else {
+            return config.getPlayer().getEyeHeight();
+        }
+    }
+
     private void savePlayerSettings() {
         Color color = getColor();
         config.getPlayer().setColor(color);
+        Float height = getHeight();
+        config.getPlayer().setHeight(height);
+        Float eyeHeight = getEyeHeight();
+        config.getPlayer().setEyeHeight(eyeHeight);
         if (nametext != null) {
             config.getPlayer().setName(nametext.getText());
         }
@@ -194,6 +261,11 @@ public class PlayerSettingsScreen extends CoreScreenLayer {
             config.getSystem().setLocale(language.getSelection());
             getManager().invalidate();
         }
+    }
+
+    @Override
+    public boolean isLowerLayerVisible() {
+        return false;
     }
 
     /**
