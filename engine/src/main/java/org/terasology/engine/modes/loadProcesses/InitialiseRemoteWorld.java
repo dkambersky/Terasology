@@ -23,6 +23,8 @@ import org.terasology.engine.subsystem.RenderingSubsystemFactory;
 import org.terasology.game.GameManifest;
 import org.terasology.logic.players.LocalPlayer;
 import org.terasology.network.NetworkSystem;
+import org.terasology.recording.DirectionAndOriginPosRecorderList;
+import org.terasology.recording.RecordAndReplayCurrentStatus;
 import org.terasology.rendering.backdrop.BackdropProvider;
 import org.terasology.rendering.backdrop.BackdropRenderer;
 import org.terasology.rendering.backdrop.Skysphere;
@@ -32,6 +34,7 @@ import org.terasology.world.BlockEntityRegistry;
 import org.terasology.world.WorldProvider;
 import org.terasology.world.block.BlockManager;
 import org.terasology.world.chunks.remoteChunkProvider.RemoteChunkProvider;
+import org.terasology.world.chunks.blockdata.ExtraBlockDataManager;
 import org.terasology.world.internal.EntityAwareWorldProvider;
 import org.terasology.world.internal.WorldProviderCoreImpl;
 import org.terasology.world.internal.WorldProviderWrapper;
@@ -39,8 +42,6 @@ import org.terasology.world.sun.BasicCelestialModel;
 import org.terasology.world.sun.CelestialSystem;
 import org.terasology.world.sun.DefaultCelestialSystem;
 
-/**
- */
 public class InitialiseRemoteWorld extends SingleStepLoadProcess {
     private final Context context;
     private final GameManifest gameManifest;
@@ -61,15 +62,17 @@ public class InitialiseRemoteWorld extends SingleStepLoadProcess {
 
         // TODO: These shouldn't be done here, nor so strongly tied to the world renderer
         LocalPlayer localPlayer = new LocalPlayer();
+        localPlayer.setRecordAndReplayClasses(context.get(DirectionAndOriginPosRecorderList.class), context.get(RecordAndReplayCurrentStatus.class));
         context.put(LocalPlayer.class, localPlayer);
         BlockManager blockManager = context.get(BlockManager.class);
+        ExtraBlockDataManager extraDataManager = context.get(ExtraBlockDataManager.class);
 
         RemoteChunkProvider chunkProvider = new RemoteChunkProvider(blockManager, localPlayer);
 
         WorldProviderCoreImpl worldProviderCore = new WorldProviderCoreImpl(gameManifest.getWorldInfo(TerasologyConstants.MAIN_WORLD), chunkProvider,
                 blockManager.getBlock(BlockManager.UNLOADED_ID), context);
         EntityAwareWorldProvider entityWorldProvider = new EntityAwareWorldProvider(worldProviderCore, context);
-        WorldProvider worldProvider = new WorldProviderWrapper(entityWorldProvider);
+        WorldProvider worldProvider = new WorldProviderWrapper(entityWorldProvider, extraDataManager);
         context.put(WorldProvider.class, worldProvider);
         context.put(BlockEntityRegistry.class, entityWorldProvider);
         context.get(ComponentSystemManager.class).register(entityWorldProvider, "engine:BlockEntityRegistry");

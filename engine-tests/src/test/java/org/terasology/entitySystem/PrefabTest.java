@@ -32,13 +32,16 @@ import org.terasology.entitySystem.prefab.PrefabManager;
 import org.terasology.entitySystem.prefab.internal.PojoPrefab;
 import org.terasology.entitySystem.prefab.internal.PojoPrefabManager;
 import org.terasology.entitySystem.prefab.internal.PrefabFormat;
+import org.terasology.entitySystem.stubs.ListOfEnumsComponent;
 import org.terasology.entitySystem.stubs.ListOfObjectComponent;
 import org.terasology.entitySystem.stubs.MappedContainerComponent;
 import org.terasology.entitySystem.stubs.OrderedMapTestComponent;
 import org.terasology.entitySystem.stubs.StringComponent;
+import org.terasology.math.Side;
 import org.terasology.network.NetworkMode;
 import org.terasology.network.NetworkSystem;
 import org.terasology.persistence.typeHandling.TypeSerializationLibrary;
+import org.terasology.recording.RecordAndReplayCurrentStatus;
 import org.terasology.registry.CoreRegistry;
 import org.terasology.testUtil.ModuleManagerFactory;
 
@@ -64,6 +67,7 @@ public class PrefabTest {
     @Before
     public void setup() throws Exception {
         ContextImpl context = new ContextImpl();
+        context.put(RecordAndReplayCurrentStatus.class, new RecordAndReplayCurrentStatus());
         CoreRegistry.setContext(context);
         ModuleManager moduleManager = ModuleManagerFactory.create();
         context.put(ModuleManager.class, moduleManager);
@@ -151,5 +155,19 @@ public class PrefabTest {
         ListOfObjectComponent mappedContainer = prefab.getComponent(ListOfObjectComponent.class);
         assertEquals(2, mappedContainer.elements.size());
         assertEquals("returnHome", mappedContainer.elements.get(1).id);
+    }
+
+    @Test
+    public void testPrefabWithListOfEnums() {
+        Prefab prefab = prefabManager.getPrefab("unittest:withListEnumContainer");
+        ListOfEnumsComponent mappedContainer = prefab.getComponent(ListOfEnumsComponent.class);
+        assertEquals(6, mappedContainer.elements.size());
+        assertEquals(Side.TOP, mappedContainer.elements.get(0));
+        assertEquals(Side.LEFT, mappedContainer.elements.get(1));
+        assertEquals(Side.RIGHT, mappedContainer.elements.get(2));
+        assertEquals(Side.FRONT, mappedContainer.elements.get(3));
+        assertEquals(Side.BACK, mappedContainer.elements.get(4));
+        assertEquals(Side.BOTTOM, mappedContainer.elements.get(5));
+
     }
 }

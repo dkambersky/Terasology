@@ -15,13 +15,23 @@
  */
 package org.terasology.engine.subsystem.lwjgl;
 
+import com.google.common.base.Suppliers;
 import org.lwjgl.LWJGLException;
 import org.lwjgl.opengl.Display;
+import org.lwjgl.opengl.DisplayMode;
 import org.terasology.config.Config;
 import org.terasology.config.RenderingConfig;
 import org.terasology.context.Context;
 import org.terasology.engine.subsystem.DisplayDevice;
+import org.terasology.engine.subsystem.Resolution;
 import org.terasology.rendering.nui.layers.mainMenu.videoSettings.DisplayModeSetting;
+import org.terasology.utilities.subscribables.AbstractSubscribable;
+
+import java.util.Comparator;
+import java.util.List;
+import java.util.function.Supplier;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 import static org.lwjgl.opengl.GL11.GL_COLOR_BUFFER_BIT;
 import static org.lwjgl.opengl.GL11.GL_DEPTH_BUFFER_BIT;
@@ -29,7 +39,11 @@ import static org.lwjgl.opengl.GL11.glClear;
 import static org.lwjgl.opengl.GL11.glLoadIdentity;
 import static org.lwjgl.opengl.GL11.glViewport;
 
-public class LwjglDisplayDevice implements DisplayDevice {
+public class LwjglDisplayDevice extends AbstractSubscribable implements DisplayDevice {
+    public static final String DISPLAY_RESOLUTION_CHANGE = "displayResolutionChange";
+
+    private final Supplier<Resolution> desktopResolution = createDesktopResolutionSupplier();
+    private final Supplier<List<Resolution>> availableResolutions = createAvailableResolutionSupplier();
 
     private RenderingConfig config;
 
@@ -75,9 +89,7 @@ public class LwjglDisplayDevice implements DisplayDevice {
         try {
             switch (displayModeSetting) {
                 case FULLSCREEN:
-                    Display.setDisplayMode(Display.getDesktopDisplayMode());
-                    Display.setLocation(config.getWindowPosX(), config.getWindowPosY());
-                    Display.setFullscreen(true);
+                    updateFullScreenDisplay();
                     config.setDisplayModeSetting(displayModeSetting);
                     config.setFullscreen(true);
                     break;
@@ -108,6 +120,33 @@ public class LwjglDisplayDevice implements DisplayDevice {
     }
 
     @Override
+    public Resolution getResolution() {
+        Resolution resolution = config.getResolution();
+        if (resolution != null) {
+            return resolution;
+        }
+        return desktopResolution.get();
+    }
+
+    @Override
+    public List<Resolution> getResolutions() {
+        return availableResolutions.get();
+    }
+
+    @Override
+    public void setResolution(Resolution resolution) {
+        config.setResolution(resolution);
+        if (DisplayModeSetting.FULLSCREEN == config.getDisplayModeSetting()) {
+            try {
+                updateFullScreenDisplay();
+                updateViewport();
+            } catch (LWJGLException e) {
+                throw new RuntimeException("Can not set resolution", e);
+            }
+        }
+    }
+
+    @Override
     public void processMessages() {
         Display.processMessages();
     }
@@ -121,5 +160,56 @@ public class LwjglDisplayDevice implements DisplayDevice {
     public void prepareToRender() {
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
         glLoadIdentity();
+    }
+
+    public void update() {
+        if (Display.wasResized()) {
+            updateViewport();
+            // Note that the "old" and "new" values (0 and 1) in the above call aren't actually
+            // used: they are only necessary to ensure that the event is fired up correctly.
+        }
+    }
+
+    private void updateViewport() {
+        glViewport(0, 0, Display.getWidth(), Display.getHeight());
+        propertyChangeSupport.firePropertyChange(DISPLAY_RESOLUTION_CHANGE, 0, 1);
+    }
+
+    private DisplayMode getFullScreenDisplayMode() {
+        Resolution resolution = config.getResolution();
+        if (resolution instanceof LwjglResolution) {
+            return ((LwjglResolution) resolution).getDisplayMode();
+        }
+        return Display.getDesktopDisplayMode();
+    }
+
+    private void updateFullScreenDisplay() throws LWJGLException {
+        Display.setDisplayMode(getFullScreenDisplayMode());
+        Display.setFullscreen(true);
+        Display.setLocation(0, 0);
+    }
+
+    private static Supplier<Resolution> createDesktopResolutionSupplier() {
+        return Suppliers.memoize(() -> new LwjglResolution(Display.getDesktopDisplayMode()));
+    }
+
+    private static Supplier<List<Resolution>> createAvailableResolutionSupplier() {
+        return Suppliers.memoize(() -> {
+            try {
+                return Stream
+                        .of(Display.getAvailableDisplayModes())
+                        .filter(DisplayMode::isFullscreenCapable)
+                        .sorted(Comparator
+                                .comparing(DisplayMode::getWidth)
+                                .thenComparing(DisplayMode::getHeight)
+                                .thenComparing(DisplayMode::getBitsPerPixel)
+                                .thenComparing(DisplayMode::getFrequency)
+                        )
+                        .map(LwjglResolution::new)
+                        .collect(Collectors.toList());
+            } catch (LWJGLException e) {
+                throw new RuntimeException("Can not get available resolutions.", e);
+            }
+        });
     }
 }

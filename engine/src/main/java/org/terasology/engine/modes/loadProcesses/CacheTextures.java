@@ -23,14 +23,12 @@ import org.terasology.rendering.assets.texture.Texture;
 import java.util.Iterator;
 import java.util.Set;
 
-/**
- */
 public class CacheTextures extends StepBasedLoadProcess {
     private Iterator<ResourceUrn> urns;
 
     @Override
     public String getMessage() {
-        return "Caching Textures...";
+        return "${engine:menu#caching-textures}";
     }
 
     @Override

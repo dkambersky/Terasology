@@ -1,5 +1,5 @@
 /*
- * Copyright 2013 MovingBlocks
+ * Copyright 2018 MovingBlocks
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -13,9 +13,9 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
 package org.terasology.world.block.items;
 
+import org.terasology.telemetry.GamePlayStatsComponent;
 import org.terasology.utilities.Assets;
 import org.terasology.audio.AudioManager;
 import org.terasology.audio.events.PlaySoundEvent;
@@ -44,14 +44,14 @@ import org.terasology.world.block.BlockComponent;
 import org.terasology.world.block.entity.placement.PlaceBlocks;
 import org.terasology.world.block.family.BlockFamily;
 
-/**
- */
+import java.util.Map;
+
 // TODO: Predict placement client-side (and handle confirm/denial)
 @RegisterSystem(RegisterMode.AUTHORITY)
 public class BlockItemSystem extends BaseComponentSystem {
 
     /**
-     * Margin and other allowed penedration is also 0.03 or 0.04.
+     * Margin and other allowed penetration is also 0.03 or 0.04.
      * Since precision is only float it needs to be that high.
      */
     private static final float ADDITIONAL_ALLOWED_PENETRATION = 0.4f;
@@ -86,11 +86,11 @@ public class BlockItemSystem extends BaseComponentSystem {
             event.consume();
             return;
         }
-        Vector3i targetBlock = blockComponent.getPosition();
+        Vector3i targetBlock = new Vector3i(blockComponent.position);
         Vector3i placementPos = new Vector3i(targetBlock);
         placementPos.add(surfaceSide.getVector3i());
 
-        Block block = type.getBlockForPlacement(worldProvider, blockEntityRegistry, placementPos, surfaceSide, secondaryDirection);
+        Block block = type.getBlockForPlacement(placementPos, surfaceSide, secondaryDirection);
 
         if (canPlaceBlock(block, targetBlock, placementPos)) {
             // TODO: Fix this for changes.
@@ -98,14 +98,35 @@ public class BlockItemSystem extends BaseComponentSystem {
                 PlaceBlocks placeBlocks = new PlaceBlocks(placementPos, block, event.getInstigator());
                 worldProvider.getWorldEntity().send(placeBlocks);
                 if (!placeBlocks.isConsumed()) {
-                    item.send(new OnBlockItemPlaced(placementPos, blockEntityRegistry.getBlockEntityAt(placementPos)));
+                    item.send(new OnBlockItemPlaced(placementPos, blockEntityRegistry.getBlockEntityAt(placementPos), event.getInstigator()));
                 } else {
                     event.consume();
                 }
             }
+            recordBlockPlaced(event, type);
             event.getInstigator().send(new PlaySoundEvent(Assets.getSound("engine:PlaceBlock").get(), 0.5f));
         } else {
             event.consume();
+        }
+    }
+
+    private void recordBlockPlaced(ActivateEvent event, BlockFamily block) {
+        EntityRef instigator = event.getInstigator();
+        String blockName = block.getDisplayName();
+        if (instigator.hasComponent(GamePlayStatsComponent.class)) {
+            GamePlayStatsComponent gamePlayStatsComponent = instigator.getComponent(GamePlayStatsComponent.class);
+            Map<String, Integer> blockPlacedMap = gamePlayStatsComponent.blockPlacedMap;
+            if (blockPlacedMap.containsKey(blockName)) {
+                blockPlacedMap.put(blockName, blockPlacedMap.get(blockName) + 1);
+            } else {
+                blockPlacedMap.put(blockName, 1);
+            }
+            instigator.saveComponent(gamePlayStatsComponent);
+        } else {
+            GamePlayStatsComponent gamePlayStatsComponent = new GamePlayStatsComponent();
+            Map<String, Integer> blockPlacedMap = gamePlayStatsComponent.blockPlacedMap;
+            blockPlacedMap.put(blockName, 1);
+            instigator.addOrSaveComponent(gamePlayStatsComponent);
         }
     }
 

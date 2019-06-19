@@ -1,5 +1,5 @@
 /*
- * Copyright 2014 MovingBlocks
+ * Copyright 2018 MovingBlocks
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -38,6 +38,7 @@ import java.util.List;
 import java.util.Set;
 
 /**
+ * Provides support for scheduling events that will trigger at some point in the future.
  */
 @RegisterSystem(RegisterMode.AUTHORITY)
 @Share(value = DelayManager.class)
@@ -91,9 +92,8 @@ public class DelayedActionSystem extends BaseComponentSystem implements UpdateSu
                     delayedEntity.send(new DelayedActionTriggeredEvent(actionId));
                 }
             } else {
-                logger.error("ERROR: This entity is missing a DelayedActionComponent. " +
-                        "So skipping delayed actions for this entity",
-                        delayedEntity);
+                logger.error("ERROR: This entity is missing a DelayedActionComponent: {}. " +
+                        "So skipping delayed actions for this entity.", delayedEntity);
             }
         });
     }
@@ -127,7 +127,7 @@ public class DelayedActionSystem extends BaseComponentSystem implements UpdateSu
                     periodicEntity.send(new PeriodicActionTriggeredEvent(actionId));
                 }
             } else {
-                logger.error("ERROR: This entity is missing a DelayedActionComponent. " +
+                logger.error("ERROR: This entity is missing a DelayedActionComponent: {}. " +
                         "So skipping delayed actions for this entity", periodicEntity);
             }
         });

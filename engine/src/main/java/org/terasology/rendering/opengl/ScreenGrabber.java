@@ -23,7 +23,7 @@ import org.terasology.context.Context;
 import org.terasology.engine.paths.PathManager;
 import org.terasology.engine.subsystem.common.ThreadManager;
 import org.terasology.registry.CoreRegistry;
-import org.terasology.registry.In;
+import org.terasology.persistence.internal.GamePreviewImageProvider;
 import org.terasology.rendering.opengl.fbms.DisplayResolutionDependentFBOs;
 
 import javax.imageio.ImageIO;
@@ -44,11 +44,16 @@ import static org.terasology.rendering.opengl.fbms.DisplayResolutionDependentFBO
 public class ScreenGrabber {
     private static final Logger logger = LoggerFactory.getLogger(ScreenGrabber.class);
 
+    private static final SimpleDateFormat SIMPLE_DATE_FORMAT = new SimpleDateFormat("yyMMddHHmmss");
+    private static final String SCREENSHOT_FILENAME_PATTERN = "Terasology-%s-%dx%d.%s";
+
     private RenderingConfig renderingConfig;
     private ThreadManager threadManager;
     private float currentExposure;
     private boolean isTakingScreenshot;
     private DisplayResolutionDependentFBOs displayResolutionDependentFBOs;
+    private Path savedGamePath;
+    private boolean savingGamePreview;
 
     /**
      * @param context
@@ -89,17 +94,16 @@ public class ScreenGrabber {
      * to be written to file, by submitting a task to the ThreadManager. The task is then executed as soon as possible
      * but not necessarily immediately.
      *
-     * The file is then saved in the designated screenshot folder with a filename in the form:
-     *
-     *     Terasology-[yyMMddHHmmss]-[width]x[height].[format]
+     * The file is then saved in the designated screenshot folder, or if it's a game preview image, it'll be placed in the save game folder.
      *
      * If no screenshot data is available an error is logged and the method returns doing nothing.
      */
     public void saveScreenshot() {
         // Since ScreenGrabber is initialized before DisplayResolutionDependentFBOs (because the latter contains a reference to the former)
         // on first call on saveScreenshot() displayResolutionDependentFBOs will be null.
-        if (displayResolutionDependentFBOs == null)
+        if (displayResolutionDependentFBOs == null) {
             displayResolutionDependentFBOs = CoreRegistry.get(DisplayResolutionDependentFBOs.class);
+        }
 
         FBO sceneFinalFbo = displayResolutionDependentFBOs.get(FINAL_BUFFER);
 
@@ -112,44 +116,91 @@ public class ScreenGrabber {
         int width = sceneFinalFbo.width();
         int height = sceneFinalFbo.height();
 
-        Runnable task = () -> {
-            SimpleDateFormat sdf = new SimpleDateFormat("yyMMddHHmmss");
-
-            final String format = renderingConfig.getScreenshotFormat();
-            final String fileName = "Terasology-" + sdf.format(new Date()) + "-" + width + "x" + height + "." + format;
-            Path path = PathManager.getInstance().getScreenshotPath().resolve(fileName);
-            BufferedImage image = new BufferedImage(width, height, BufferedImage.TYPE_INT_RGB);
-
-            for (int x = 0; x < width; x++) {
-                for (int y = 0; y < height; y++) {
-                    int i = (x + width * y) * 4;
-                    int r = buffer.get(i) & 0xFF;
-                    int g = buffer.get(i + 1) & 0xFF;
-                    int b = buffer.get(i + 2) & 0xFF;
-                    image.setRGB(x, height - (y + 1), (0xFF << 24) | (r << 16) | (g << 8) | b);
-                }
-            }
-
-            try (OutputStream out = new BufferedOutputStream(Files.newOutputStream(path))) {
-                ImageIO.write(image, format, out);
-                logger.info("Screenshot '" + fileName + "' saved! ");
-            } catch (IOException e) {
-                logger.warn("Failed to save screenshot!", e);
-            }
-        };
+        Runnable task;
+        if (savingGamePreview) {
+            task = () -> saveGamePreviewTask(buffer, width, height);
+            this.savingGamePreview = false;
+        } else {
+            task = () -> saveScreenshotTask(buffer, width, height);
+        }
 
         threadManager.submitTask("Write screenshot", task);
         isTakingScreenshot = false;
     }
 
     /**
-     * Returns true if the rendering engine is not in the process of taking a screenshot.
-     * Returns false if a screenshot is being taken.
+     * Saves given screenshot data to file.
      *
-     * @return true if no screenshot is being taken, false otherwise
+     * The file is then saved in the designated screenshot folder with a filename in the form:
+     *
+     *     Terasology-[yyMMddHHmmss]-[width]x[height].[format]
      */
-    // for code readability it make sense to have this method rather than its opposite.
-    public boolean isNotTakingScreenshot() {
-        return !isTakingScreenshot;
+    private void saveScreenshotTask(ByteBuffer buffer, int width, int height) {
+        final String format = renderingConfig.getScreenshotFormat();
+        final Path screenshotPath = getScreenshotPath(width, height, format);
+        final BufferedImage image = convertByteBufferToBufferedImage(buffer, width, height);
+        writeImageToFile(image, screenshotPath, format);
+    }
+
+    /**
+     *  Saves given image data to file in save game folder.
+     */
+    private void saveGamePreviewTask(ByteBuffer buffer, int width, int height) {
+        BufferedImage image = convertByteBufferToBufferedImage(buffer, width, height);
+        writeImageToFile(image, savedGamePath, "jpg");
+    }
+
+    private void writeImageToFile(BufferedImage image, Path path, String format) {
+        try (OutputStream out = new BufferedOutputStream(Files.newOutputStream(path))) {
+            ImageIO.write(image, format, out);
+            logger.info("Screenshot saved to {}! ", path);
+        } catch (IOException e) {
+            logger.warn("Failed to save screenshot!", e);
+        }
+    }
+
+    /**
+     * Transforms ByteBuffer into BufferedImage with specified width and height.
+     */
+    private BufferedImage convertByteBufferToBufferedImage(ByteBuffer buffer, int width, int height) {
+        BufferedImage image = new BufferedImage(width, height, BufferedImage.TYPE_INT_RGB);
+        for (int x = 0; x < width; x++) {
+            for (int y = 0; y < height; y++) {
+                int i = (x + width * y) * 4;
+                int r = buffer.get(i) & 0xFF;
+                int g = buffer.get(i + 1) & 0xFF;
+                int b = buffer.get(i + 2) & 0xFF;
+                image.setRGB(x, height - (y + 1), (0xFF << 24) | (r << 16) | (g << 8) | b);
+            }
+        }
+        return image;
+    }
+
+    private Path getScreenshotPath(final int width, final int height, final String format) {
+        final String fileName = String.format(
+          SCREENSHOT_FILENAME_PATTERN, SIMPLE_DATE_FORMAT.format(new Date()), width, height, format);
+        return PathManager.getInstance().getScreenshotPath().resolve(fileName);
+    }
+
+    /**
+     * Returns true if the rendering engine is in the process of taking a screenshot.
+     * Returns false if a screenshot is not being taken.
+     *
+     * @return true if a screenshot is being taken, false otherwise
+     */
+    public boolean isTakingScreenshot() {
+        return isTakingScreenshot;
+    }
+
+    /**
+     * Schedules the saving of game preview screenshot.
+     *
+     * @param saveDirPath to save folder
+     */
+    public void takeGamePreview(final Path saveDirPath)
+    {
+        this.savingGamePreview = true;
+        this.savedGamePath = GamePreviewImageProvider.getNextGamePreviewImagePath(saveDirPath);
+        this.saveScreenshot();
     }
 }

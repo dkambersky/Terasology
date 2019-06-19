@@ -16,10 +16,10 @@
 package org.terasology.logic.players;
 
 import org.terasology.assets.ResourceUrn;
-import org.terasology.config.BindsConfig;
 import org.terasology.config.Config;
 import org.terasology.engine.SimpleUri;
 import org.terasology.engine.Time;
+import org.terasology.engine.subsystem.config.BindsManager;
 import org.terasology.entitySystem.entity.EntityRef;
 import org.terasology.entitySystem.event.EventPriority;
 import org.terasology.entitySystem.event.ReceiveEvent;
@@ -45,8 +45,8 @@ import org.terasology.input.binds.movement.ToggleSpeedPermanentlyButton;
 import org.terasology.input.binds.movement.ToggleSpeedTemporarilyButton;
 import org.terasology.input.binds.movement.VerticalMovementAxis;
 import org.terasology.input.binds.movement.VerticalRealMovementAxis;
-import org.terasology.input.events.MouseXAxisEvent;
-import org.terasology.input.events.MouseYAxisEvent;
+import org.terasology.input.events.MouseAxisEvent;
+import org.terasology.input.events.MouseAxisEvent.MouseAxis;
 import org.terasology.logic.characters.CharacterComponent;
 import org.terasology.logic.characters.CharacterHeldItemComponent;
 import org.terasology.logic.characters.CharacterMoveInputEvent;
@@ -54,12 +54,10 @@ import org.terasology.logic.characters.CharacterMovementComponent;
 import org.terasology.logic.characters.GazeMountPointComponent;
 import org.terasology.logic.characters.MovementMode;
 import org.terasology.logic.characters.events.OnItemUseEvent;
-import org.terasology.logic.characters.events.SetMovementModeEvent;
 import org.terasology.logic.characters.interactions.InteractionUtil;
 import org.terasology.logic.debug.MovementDebugCommands;
 import org.terasology.logic.delay.DelayManager;
 import org.terasology.logic.location.LocationComponent;
-import org.terasology.logic.notifications.NotificationMessageEvent;
 import org.terasology.logic.players.event.OnPlayerSpawnedEvent;
 import org.terasology.math.AABB;
 import org.terasology.math.Direction;
@@ -67,10 +65,9 @@ import org.terasology.math.TeraMath;
 import org.terasology.math.geom.Quat4f;
 import org.terasology.math.geom.Vector3f;
 import org.terasology.network.ClientComponent;
+import org.terasology.network.NetworkMode;
 import org.terasology.network.NetworkSystem;
-import org.terasology.physics.engine.CharacterCollider;
 import org.terasology.physics.engine.PhysicsEngine;
-import org.terasology.physics.engine.SweepCallback;
 import org.terasology.registry.In;
 import org.terasology.rendering.AABBRenderer;
 import org.terasology.rendering.BlockOverlayRenderer;
@@ -83,8 +80,6 @@ import org.terasology.world.block.BlockComponent;
 import org.terasology.world.block.regions.BlockRegionComponent;
 
 import java.util.List;
-
-import static org.terasology.logic.characters.KinematicCharacterMover.VERTICAL_PENETRATION_LEEWAY;
 
 // TODO: This needs a really good cleanup
 // TODO: Move more input stuff to a specific input system?
@@ -110,21 +105,25 @@ public class LocalPlayerSystem extends BaseComponentSystem implements UpdateSubs
     @In
     private InputSystem inputSystem;
 
-    private BindsConfig bindsConfig;
+    @In
+    private BindsManager bindsManager;
+
     private float bobFactor;
     private float lastStepDelta;
 
     // Input
     private Vector3f relativeMovement = new Vector3f();
-    private boolean isAutoMove = false;
+    private boolean isAutoMove;
     private boolean runPerDefault = true;
     private boolean run = runPerDefault;
+    private boolean crouchPerDefault = false;
+    private boolean crouch = false;
+
     private boolean jump;
     private float lookPitch;
     private float lookPitchDelta;
     private float lookYaw;
     private float lookYawDelta;
-    private float crouchFraction = 0.5f;
 
     @In
     private Time time;
@@ -134,7 +133,6 @@ public class LocalPlayerSystem extends BaseComponentSystem implements UpdateSubs
     private int inputSequenceNumber = 1;
 
     private AABB aabb;
-
 
     public void setPlayerCamera(Camera camera) {
         playerCamera = camera;
@@ -162,68 +160,40 @@ public class LocalPlayerSystem extends BaseComponentSystem implements UpdateSubs
         Vector3f relMove = new Vector3f(relativeMovement);
         relMove.y = 0;
 
-        Quat4f viewRot;
+        Quat4f viewRotation;
         switch (characterMovementComponent.mode) {
+            case CROUCHING:
             case WALKING:
-                viewRot = new Quat4f(TeraMath.DEG_TO_RAD * lookYaw, 0, 0);
-                viewRot.rotate(relMove, relMove);
+                if (!config.getRendering().isVrSupport()) {
+                    viewRotation = new Quat4f(TeraMath.DEG_TO_RAD * lookYaw, 0, 0);
+                    playerCamera.setOrientation(viewRotation);
+                }
+                playerCamera.getOrientation().rotate(relMove, relMove);
                 break;
             case CLIMBING:
                 // Rotation is applied in KinematicCharacterMover
                 relMove.y += relativeMovement.y;
                 break;
             default:
-                viewRot = new Quat4f(TeraMath.DEG_TO_RAD * lookYaw, TeraMath.DEG_TO_RAD * lookPitch, 0);
-                viewRot.rotate(relMove, relMove);
+                if (!config.getRendering().isVrSupport()) {
+                    viewRotation = new Quat4f(TeraMath.DEG_TO_RAD * lookYaw, TeraMath.DEG_TO_RAD * lookPitch, 0);
+                    playerCamera.setOrientation(viewRotation);
+                }
+                playerCamera.getOrientation().rotate(relMove, relMove);
                 relMove.y += relativeMovement.y;
                 break;
         }
-        entity.send(new CharacterMoveInputEvent(inputSequenceNumber++, lookPitch, lookYaw, relMove, run, jump, time.getGameDeltaInMs()));
-        jump = false;
-    }
-
-    /**
-     * Reduces height and eyeHeight by crouchFraction and changes MovementMode.
-     */
-    private void crouchPlayer(EntityRef entity) {
-        ClientComponent clientComp = entity.getComponent(ClientComponent.class);
-        GazeMountPointComponent gazeMountPointComponent = clientComp.character.getComponent(GazeMountPointComponent.class);
-        float height = clientComp.character.getComponent(CharacterMovementComponent.class).height;
-        float eyeHeight = gazeMountPointComponent.translate.getY();
-        movementDebugCommands.playerHeight(localPlayer.getClientEntity(), height * crouchFraction);
-        movementDebugCommands.playerEyeHeight(localPlayer.getClientEntity(), eyeHeight * crouchFraction);
-        clientComp.character.send(new SetMovementModeEvent(MovementMode.CROUCHING));
-    }
-
-    /**
-     * Checks if there is an impenetrable block above,
-     * Raises a Notification "Cannot stand up here!" if present
-     * If not present, increases height and eyeHeight by crouchFraction and changes MovementMode.
-     */
-    private void standPlayer(EntityRef entity) {
-        ClientComponent clientComp = entity.getComponent(ClientComponent.class);
-        GazeMountPointComponent gazeMountPointComponent = clientComp.character.getComponent(GazeMountPointComponent.class);
-        float height = clientComp.character.getComponent(CharacterMovementComponent.class).height;
-        float eyeHeight = gazeMountPointComponent.translate.getY();
-        Vector3f pos = entity.getComponent(LocationComponent.class).getWorldPosition();
-        // Check for collision when rising
-        CharacterCollider collider = physics.getCharacterCollider(clientComp.character);
-        // height used below = (1 - crouch_fraction) * standing_height
-        Vector3f to = new Vector3f(pos.x, pos.y + (1 - crouchFraction) * height / crouchFraction, pos.z);
-        SweepCallback callback = collider.sweep(pos, to, VERTICAL_PENETRATION_LEEWAY, -1f);
-        if (callback.hasHit()) {
-            entity.send(new NotificationMessageEvent("Cannot stand up here!", entity));
-            return;
+        // For some reason, Quat4f.rotate is returning NaN for valid inputs. This prevents those NaNs from causing trouble down the line.
+        if (!Float.isNaN(relMove.getX()) && !Float.isNaN(relMove.getY()) && !Float.isNaN(relMove.getZ())) {
+            entity.send(new CharacterMoveInputEvent(inputSequenceNumber++, lookPitch, lookYaw, relMove, run, crouch, jump, time.getGameDeltaInMs()));
         }
-        movementDebugCommands.playerHeight(localPlayer.getClientEntity(), height / crouchFraction);
-        movementDebugCommands.playerEyeHeight(localPlayer.getClientEntity(), eyeHeight / crouchFraction);
-        clientComp.character.send(new SetMovementModeEvent(MovementMode.WALKING));
+        jump = false;
     }
 
     // To check if a valid key has been assigned, either primary or secondary and return it
     private Input getValidKey(List<Input> inputs) {
-        for(Input input: inputs) {
-            if(input != null) {
+        for (Input input : inputs) {
+            if (input != null) {
                 return input;
             }
         }
@@ -235,9 +205,9 @@ public class LocalPlayerSystem extends BaseComponentSystem implements UpdateSubs
      * This cancels the simulated repeated key stroke for the forward input button.
      */
     private void stopAutoMove() {
-        List<Input> inputs = bindsConfig.getBinds(new SimpleUri("engine:forwards"));
+        List<Input> inputs = bindsManager.getBindsConfig().getBinds(new SimpleUri("engine:forwards"));
         Input forwardKey = getValidKey(inputs);
-        if(forwardKey != null) {
+        if (forwardKey != null) {
             inputSystem.cancelSimulatedKeyStroke(forwardKey);
             isAutoMove = false;
         }
@@ -250,10 +220,9 @@ public class LocalPlayerSystem extends BaseComponentSystem implements UpdateSubs
      */
     private void startAutoMove() {
         isAutoMove = false;
-        bindsConfig = config.getInput().getBinds();
-        List<Input> inputs = bindsConfig.getBinds(new SimpleUri("engine:forwards"));
+        List<Input> inputs = bindsManager.getBindsConfig().getBinds(new SimpleUri("engine:forwards"));
         Input forwardKey = getValidKey(inputs);
-        if(forwardKey != null) {
+        if (forwardKey != null) {
             isAutoMove = true;
             inputSystem.simulateSingleKeyStroke(forwardKey);
             inputSystem.simulateRepeatedKeyStroke(forwardKey);
@@ -283,14 +252,13 @@ public class LocalPlayerSystem extends BaseComponentSystem implements UpdateSubs
     }
 
     @ReceiveEvent(components = CharacterComponent.class)
-    public void onMouseX(MouseXAxisEvent event, EntityRef entity) {
-        lookYawDelta = event.getValue();
-        event.consume();
-    }
-
-    @ReceiveEvent(components = CharacterComponent.class)
-    public void onMouseY(MouseYAxisEvent event, EntityRef entity) {
-        lookPitchDelta = event.getValue();
+    public void onMouseMove(MouseAxisEvent event, EntityRef entity) {
+        MouseAxis axis = event.getMouseAxis();
+        if (axis == MouseAxis.X) {
+            lookYawDelta = event.getValue();
+        } else if (axis == MouseAxis.Y) {
+            lookPitchDelta = event.getValue();
+        }
         event.consume();
     }
 
@@ -319,7 +287,7 @@ public class LocalPlayerSystem extends BaseComponentSystem implements UpdateSubs
     @ReceiveEvent(components = {ClientComponent.class})
     public void updateForwardsMovement(ForwardsMovementAxis event, EntityRef entity) {
         relativeMovement.z = event.getValue();
-        if(relativeMovement.z == 0f && isAutoMove) {
+        if (relativeMovement.z == 0f && isAutoMove) {
             stopAutoMove();
         }
         event.consume();
@@ -365,26 +333,16 @@ public class LocalPlayerSystem extends BaseComponentSystem implements UpdateSubs
     // Crouches if button is pressed. Stands if button is released.
     @ReceiveEvent(components = {ClientComponent.class}, priority = EventPriority.PRIORITY_NORMAL)
     public void onCrouchTemporarily(CrouchButton event, EntityRef entity) {
-        ClientComponent clientComp = entity.getComponent(ClientComponent.class);
-        CharacterMovementComponent move = clientComp.character.getComponent(CharacterMovementComponent.class);
-        if (event.isDown() && move.mode == MovementMode.WALKING) {
-            crouchPlayer(entity);
-        } else if (!event.isDown() && move.mode == MovementMode.CROUCHING) {
-            standPlayer(entity);
-        }
+        boolean toggle = event.isDown();
+        crouch = crouchPerDefault ^ toggle;
         event.consume();
     }
 
     @ReceiveEvent(components = {ClientComponent.class}, priority = EventPriority.PRIORITY_NORMAL)
     public void onCrouchMode(CrouchModeButton event, EntityRef entity) {
-        ClientComponent clientComp = entity.getComponent(ClientComponent.class);
-        CharacterMovementComponent move = clientComp.character.getComponent(CharacterMovementComponent.class);
         if (event.isDown()) {
-            if (move.mode == MovementMode.WALKING) {
-                crouchPlayer(entity);
-            } else if (move.mode == MovementMode.CROUCHING) {
-                standPlayer(entity);
-            }
+            crouchPerDefault = !crouchPerDefault;
+            crouch = !crouch;
         }
         event.consume();
     }
@@ -529,7 +487,7 @@ public class LocalPlayerSystem extends BaseComponentSystem implements UpdateSubs
     }
 
     private float calcBobbingOffset(float phaseOffset, float amplitude, float frequency) {
-        return (float) java.lang.Math.sin(bobFactor * frequency + phaseOffset) * amplitude;
+        return (float) java.lang.Math.sin((double) bobFactor * frequency + phaseOffset) * amplitude;
     }
 
     @Override
@@ -543,11 +501,19 @@ public class LocalPlayerSystem extends BaseComponentSystem implements UpdateSubs
     }
 
     @Override
-    public void renderFirstPerson() {
-    }
-
-    @Override
     public void renderShadows() {
     }
 
+    /**
+     * Special getter that fetches the client entity via the NetworkSystem instead of the LocalPlayer.
+     * This can be needed in special cases where the local player isn't fully available (TODO: May be a bug?)
+     * @return the EntityRef that the networking system says is the client associated with this player
+     */
+    public EntityRef getClientEntityViaNetworkSystem() {
+        if (networkSystem.getMode() != NetworkMode.NONE && networkSystem.getServer() != null) {
+            return networkSystem.getServer().getClientEntity();
+        } else {
+            return null;
+        }
+    }
 }

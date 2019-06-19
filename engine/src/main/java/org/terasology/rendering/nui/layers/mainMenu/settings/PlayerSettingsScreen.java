@@ -20,6 +20,19 @@ import com.google.common.base.Functions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.math.DoubleMath;
+import org.terasology.context.Context;
+import org.terasology.engine.subsystem.rpc.DiscordRPCSubSystem;
+import org.terasology.identity.storageServiceClient.StorageServiceWorker;
+import org.terasology.identity.storageServiceClient.StorageServiceWorkerStatus;
+import org.terasology.rendering.nui.layers.mainMenu.StorageServiceLoginPopup;
+import org.terasology.rendering.nui.layers.mainMenu.ThreeButtonPopup;
+import org.terasology.rendering.nui.widgets.UIButton;
+import org.terasology.rendering.nui.widgets.UICheckbox;
+import org.terasology.rendering.nui.widgets.UIDropdownScrollable;
+import org.terasology.rendering.nui.widgets.UIImage;
+import org.terasology.rendering.nui.widgets.UILabel;
+import org.terasology.rendering.nui.widgets.UISlider;
+import org.terasology.rendering.nui.widgets.UIText;
 import org.terasology.utilities.Assets;
 import org.terasology.assets.ResourceUrn;
 import org.terasology.config.Config;
@@ -35,11 +48,6 @@ import org.terasology.rendering.nui.WidgetUtil;
 import org.terasology.rendering.nui.animation.MenuAnimationSystems;
 import org.terasology.rendering.nui.databinding.DefaultBinding;
 import org.terasology.rendering.nui.databinding.ReadOnlyBinding;
-import org.terasology.rendering.nui.widgets.UIButton;
-import org.terasology.rendering.nui.widgets.UIDropdownScrollable;
-import org.terasology.rendering.nui.widgets.UIImage;
-import org.terasology.rendering.nui.widgets.UISlider;
-import org.terasology.rendering.nui.widgets.UIText;
 
 import java.math.RoundingMode;
 import java.util.ArrayList;
@@ -47,14 +55,21 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Collections;
 
+import static org.terasology.identity.storageServiceClient.StatusMessageTranslator.getLocalizedButtonMessage;
+import static org.terasology.identity.storageServiceClient.StatusMessageTranslator.getLocalizedStatusMessage;
+
 public class PlayerSettingsScreen extends CoreScreenLayer {
 
     public static final ResourceUrn ASSET_URI = new ResourceUrn("engine:PlayerMenuScreen");
 
     @In
+    private Context context;
+    @In
     private Config config;
     @In
     private TranslationSystem translationSystem;
+    @In
+    private StorageServiceWorker storageService;
 
     private final List<Color> colors = CieCamColors.L65C65;
 
@@ -70,10 +85,15 @@ public class PlayerSettingsScreen extends CoreScreenLayer {
 
     private UIText nametext;
     private UISlider slider;
+    private UILabel storageServiceStatus;
+    private UIButton storageServiceAction;
     private UISlider heightSlider;
     private UISlider eyeHeightSlider;
     private UIImage img;
+    private UICheckbox discordPresence;
     private UIDropdownScrollable<Locale> language;
+
+    private StorageServiceWorkerStatus storageServiceWorkerStatus;
 
     @Override
     public void onOpened() {
@@ -91,6 +111,9 @@ public class PlayerSettingsScreen extends CoreScreenLayer {
         if (eyeHeightSlider != null) {
             eyeHeightSlider.bindValue(new NotifyingBinding(config.getPlayer().getEyeHeight()));
         }
+        if (discordPresence != null) {
+            discordPresence.setChecked(config.getPlayer().isDiscordPresence());
+        }
         if (language != null) {
             language.setSelection(config.getSystem().getLocale());
         }
@@ -100,6 +123,11 @@ public class PlayerSettingsScreen extends CoreScreenLayer {
     @Override
     public void initialise() {
         setAnimationSystem(MenuAnimationSystems.createDefaultSwipeAnimation());
+
+        storageServiceStatus = find("storageServiceStatus", UILabel.class);
+        storageServiceAction = find("storageServiceAction", UIButton.class);
+        updateStorageServiceStatus();
+
         nametext = find("playername", UIText.class);
         if (nametext != null) {
             nametext.setTooltipDelay(0);
@@ -140,6 +168,8 @@ public class PlayerSettingsScreen extends CoreScreenLayer {
             eyeHeightSlider.setPrecision(1);
         }
 
+        discordPresence = find("discord-presence", UICheckbox.class);
+
         language = find("language", UIDropdownScrollable.class);
         if (language != null) {
             SimpleUri menuUri = new SimpleUri("engine:menu");
@@ -155,6 +185,23 @@ public class PlayerSettingsScreen extends CoreScreenLayer {
         }
 
         WidgetUtil.trySubscribe(this, "close", button -> triggerBackAnimation());
+
+        IdentityIOHelper identityIOHelper = new IdentityIOHelper(context);
+        WidgetUtil.trySubscribe(this, "importIdentities", button -> identityIOHelper.importIdentities());
+        WidgetUtil.trySubscribe(this, "exportIdentities", button -> identityIOHelper.exportIdentities());
+
+        WidgetUtil.trySubscribe(this, "storageServiceAction", widget -> {
+            if (storageService.getStatus() == StorageServiceWorkerStatus.LOGGED_IN) {
+                ThreeButtonPopup logoutPopup = getManager().pushScreen(ThreeButtonPopup.ASSET_URI, ThreeButtonPopup.class);
+                logoutPopup.setMessage(translationSystem.translate("${engine:menu#storage-service-log-out}"),
+                        translationSystem.translate("${engine:menu#storage-service-log-out-popup}"));
+                logoutPopup.setLeftButton(translationSystem.translate("${engine:menu#dialog-yes}"), () -> storageService.logout(true));
+                logoutPopup.setCenterButton(translationSystem.translate("${engine:menu#dialog-no}"), () -> storageService.logout(false));
+                logoutPopup.setRightButton(translationSystem.translate("${engine:menu#dialog-cancel}"), () -> { });
+            } else if (storageService.getStatus() == StorageServiceWorkerStatus.LOGGED_OUT) {
+                getManager().pushScreen(StorageServiceLoginPopup.ASSET_URI, StorageServiceLoginPopup.class);
+            }
+        });
 
         UIButton okButton = find("ok", UIButton.class);
         if (okButton != null) {
@@ -178,9 +225,30 @@ public class PlayerSettingsScreen extends CoreScreenLayer {
         }
     }
 
+    @Override
+    public void update(float delta) {
+        super.update(delta);
+        if (storageService.getStatus() != storageServiceWorkerStatus) {
+            updateStorageServiceStatus();
+        }
+    }
+
+    private void updateStorageServiceStatus() {
+        StorageServiceWorkerStatus stat = storageService.getStatus();
+        storageServiceStatus.setText(getLocalizedStatusMessage(stat, translationSystem, storageService.getLoginName()));
+        storageServiceAction.setText(getLocalizedButtonMessage(stat, translationSystem));
+        storageServiceAction.setVisible(stat.isButtonEnabled());
+        storageServiceWorkerStatus = stat;
+    }
+
     private String validateScreen() {
-        if (nametext != null && Strings.isNullOrEmpty(nametext.getText())) {
-            return translationSystem.translate("${engine:menu#missing-name-message}");
+        if (nametext != null) {
+            if (Strings.isNullOrEmpty(nametext.getText()) || nametext.getText().trim().length() == 0) {
+                return translationSystem.translate("${engine:menu#missing-name-message}");
+            }
+            if (nametext.getText().trim().length() > 100) {
+                return translationSystem.translate("${engine:menu#validation-username-max-length}");
+            }
         }
         return null;
     }
@@ -208,7 +276,7 @@ public class PlayerSettingsScreen extends CoreScreenLayer {
     }
 
     private Color findClosestColor(float findex) {
-        int index = DoubleMath.roundToInt(findex * (colors.size() - 1), RoundingMode.HALF_UP);
+        int index = DoubleMath.roundToInt(findex * (double) (colors.size() - 1), RoundingMode.HALF_UP);
         Color color = colors.get(index);
         return color;
     }
@@ -254,8 +322,11 @@ public class PlayerSettingsScreen extends CoreScreenLayer {
         config.getPlayer().setHeight(height);
         Float eyeHeight = getEyeHeight();
         config.getPlayer().setEyeHeight(eyeHeight);
+        config.getPlayer().setDiscordPresence(discordPresence.isChecked());
         if (nametext != null) {
-            config.getPlayer().setName(nametext.getText());
+            config.getPlayer().setName(nametext.getText().trim());
+            config.getPlayer().setHasEnteredUsername(true);
+            DiscordRPCSubSystem.updateState();
         }
         if (!config.getSystem().getLocale().equals(language.getSelection())) {
             config.getSystem().setLocale(language.getSelection());

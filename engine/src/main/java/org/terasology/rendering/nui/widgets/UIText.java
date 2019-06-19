@@ -17,6 +17,7 @@ package org.terasology.rendering.nui.widgets;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
+import com.google.common.collect.ObjectArrays;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.terasology.input.Keyboard;
@@ -38,6 +39,7 @@ import org.terasology.rendering.nui.InteractionListener;
 import org.terasology.rendering.nui.LayoutConfig;
 import org.terasology.rendering.nui.SubRegion;
 import org.terasology.rendering.nui.TextLineBuilder;
+import org.terasology.rendering.nui.WidgetWithOrder;
 import org.terasology.rendering.nui.databinding.Binding;
 import org.terasology.rendering.nui.databinding.DefaultBinding;
 import org.terasology.rendering.nui.events.NUIKeyEvent;
@@ -58,21 +60,11 @@ import java.util.List;
 /**
  * This class describes a generic text-box widget.
  */
-public class UIText extends CoreWidget {
+public class UIText extends WidgetWithOrder {
 
     private static final Logger logger = LoggerFactory.getLogger(UIText.class);
 
     private static final float BLINK_RATE = 0.25f;
-    /** The text contained by the text box. */
-    @LayoutConfig
-    protected Binding<String> text = new DefaultBinding<>("");
-
-    /* The placeholder hint text. */
-    @LayoutConfig
-    private String hintText = "";
-
-    /* Whether the box is currently showing the hint text. */
-    private boolean isShowingHintText = true;
 
     /** Whether the content needs to be displayed on multiple lines. */
     @LayoutConfig
@@ -105,6 +97,13 @@ public class UIText extends CoreWidget {
 
     /** The number of characters between the start of the text in the widget and the current position of the cursor. */
     protected int offset;
+
+    /** The text contained by the text box. */
+    @LayoutConfig
+    protected Binding<String> text = new DefaultBinding<>("");
+
+    @LayoutConfig
+    private String[] linesOfText = new String[]{};
 
     /**
      * The interaction listener of the widget. This handles how the widget reacts to different stimuli from the user.
@@ -156,9 +155,20 @@ public class UIText extends CoreWidget {
         }
     };
 
+    /* The placeholder hint text. */
+    @LayoutConfig
+    private String hintText = "";
+
+    /* Whether the box is currently showing the hint text. */
+    private boolean isShowingHintText = true;
+
+    @LayoutConfig
+    private boolean passwordMode;
+
     private float blinkCounter;
 
     private TextureRegion cursorTexture;
+
 
     /**
      * Default constructor.
@@ -177,6 +187,12 @@ public class UIText extends CoreWidget {
         cursorTexture = Assets.getTexture("engine:white").get();
     }
 
+    private String buildPasswordString() {
+        char[] arr = new char[text.get().length()];
+        Arrays.fill(arr, '*');
+        return String.valueOf(arr);
+    }
+
     /**
      * Handles how the widget is drawn.
      *
@@ -184,36 +200,42 @@ public class UIText extends CoreWidget {
      */
     @Override
     public void onDraw(Canvas canvas) {
+        lastWidth = canvas.size().x;
+        if (isEnabled()) {
+            canvas.addInteractionRegion(interactionListener, canvas.getRegion());
+        }
+        drawAll(canvas, canvas.size().x);
+    }
+
+
+    protected void drawAll(Canvas canvas, int multilineWidth) {
+
         if (text.get() == null) {
             text.set("");
         }
-        if (text.get().equals("")) {
+        if (text.get().equals("") && linesOfText.length > 0) {
             text.set(hintText);
             isShowingHintText = true;
         }
         if (isShowingHintText) {
             setCursorPosition(0);
             if (!text.get().equals(hintText) && text.get().endsWith(hintText)) {
-                text.set(text.get().substring(0, text.get().length()-hintText.length()));
+                text.set(text.get().substring(0, text.get().length() - hintText.length()));
                 setCursorPosition(text.get().length());
                 isShowingHintText = false;
             }
         }
+
         lastFont = canvas.getCurrentStyle().getFont();
-        lastWidth = canvas.size().x;
-        if (isEnabled()) {
-            canvas.addInteractionRegion(interactionListener, canvas.getRegion());
-        }
         correctCursor();
-
-        int widthForDraw = (multiline) ? canvas.size().x : lastFont.getWidth(getText());
-
+        String textToDraw = passwordMode ? buildPasswordString() : getText();
+        int widthForDraw = (multiline) ? multilineWidth : lastFont.getWidth(textToDraw);
         try (SubRegion ignored = canvas.subRegion(canvas.getRegion(), true);
              SubRegion ignored2 = canvas.subRegion(Rect2i.createFromMinAndSize(-offset, 0, widthForDraw + 1, Integer.MAX_VALUE), false)) {
             if (isShowingHintText && !readOnly) {
-                canvas.drawTextRaw(text.get(), lastFont, canvas.getCurrentStyle().getHintTextColor(), canvas.getRegion());
+                canvas.drawTextRaw(textToDraw, lastFont, canvas.getCurrentStyle().getHintTextColor(), canvas.getRegion());
             } else {
-                canvas.drawText(text.get(), canvas.getRegion());
+                canvas.drawText(textToDraw, canvas.getRegion());
             }
             if (isFocused()) {
                 if (hasSelection()) {
@@ -285,8 +307,8 @@ public class UIText extends CoreWidget {
     protected void drawCursor(Canvas canvas) {
         if (blinkCounter < BLINK_RATE) {
             Font font = canvas.getCurrentStyle().getFont();
-            String beforeCursor = text.get();
-            if (getCursorPosition() < text.get().length()) {
+            String beforeCursor = getText();
+            if (getCursorPosition() < getText().length()) {
                 beforeCursor = beforeCursor.substring(0, getCursorPosition());
             }
             List<String> lines = TextLineBuilder.getLines(font, beforeCursor, canvas.size().x);
@@ -354,15 +376,21 @@ public class UIText extends CoreWidget {
                         eventHandled = true;
                     }
                 }
-                if (event.getKeyCharacter() != 0 && lastFont.hasCharacter(event.getKeyCharacter())) {
-                    String fullText = text.get();
+                if (event.getKey() == Keyboard.Key.ENTER || event.getKey() == Keyboard.Key.NUMPAD_ENTER) {
+                    for (ActivateEventListener listener : activationListeners) {
+                        listener.onActivated(this);
+                    }
+                    eventHandled = true;
+                } else if (event.getKeyCharacter() != 0 && lastFont.hasCharacter(event.getKeyCharacter())) {
+                    String fullText = getText();
                     String before = fullText.substring(0, Math.min(getCursorPosition(), selectionStart));
                     String after = fullText.substring(Math.max(getCursorPosition(), selectionStart));
                     setText(before + event.getKeyCharacter() + after);
                     setCursorPosition(Math.min(getCursorPosition(), selectionStart) + 1);
+                    eventHandled = true;
                 }
             } else {
-                String fullText = text.get();
+                String fullText = getText();
 
                 switch (event.getKey().getId()) {
                     case KeyId.LEFT: {
@@ -437,6 +465,13 @@ public class UIText extends CoreWidget {
                         }
                         case KeyId.ENTER:
                         case KeyId.NUMPAD_ENTER: {
+                            if (event.getKeyboard().isKeyDown(Keyboard.Key.LEFT_SHIFT.getId())
+                                    || event.getKeyboard().isKeyDown(Keyboard.Key.RIGHT_SHIFT.getId())) {
+                                if (multiline) {
+                                    setText(fullText + "\n");
+                                    increaseCursorPosition(1);
+                                }
+                            }
                             for (ActivateEventListener listener : activationListeners) {
                                 listener.onActivated(this);
                             }
@@ -637,10 +672,13 @@ public class UIText extends CoreWidget {
     /**
      * Get the text contained by the text box.
      *
-     * @return The text contained by the text box
+     * @return The text contained by the text box.
+     * If both the linesOfText array and the text string are populated,
+     * return the text concatenated with the array text, else return
+     * contents of linesOfText or text accordingly.
      */
     public String getText() {
-        return text.get();
+        return String.join("\n", ObjectArrays.concat(text.get(), linesOfText));
     }
 
     /**
@@ -653,6 +691,7 @@ public class UIText extends CoreWidget {
         boolean callEvent = !prevText.equals(val);
 
         text.set(val != null ? val : "");
+        linesOfText = new String[]{};
         correctCursor();
 
         if (callEvent) {
@@ -660,6 +699,18 @@ public class UIText extends CoreWidget {
                 listener.onTextChange(prevText, val);
             }
         }
+    }
+
+    public void setLinesOfText(String[] arr){
+        String prevText = getText();
+        linesOfText = arr;
+        text.set("");
+        String newText = getText();
+        correctCursor();
+        for (TextChangeEventListener listener : textChangeListeners) {
+            listener.onTextChange(prevText, newText);
+        }
+
     }
 
     /**

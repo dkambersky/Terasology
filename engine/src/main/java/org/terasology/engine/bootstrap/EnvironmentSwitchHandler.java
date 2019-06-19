@@ -1,5 +1,5 @@
 /*
- * Copyright 2013 MovingBlocks
+ * Copyright 2018 MovingBlocks
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -47,10 +47,6 @@ import org.terasology.reflection.reflect.ReflectFactory;
 import org.terasology.registry.InjectionHelper;
 import org.terasology.util.reflection.GenericsUtil;
 import org.terasology.utilities.ReflectionUtil;
-import org.terasology.world.block.family.BlockFamilyFactory;
-import org.terasology.world.block.family.BlockFamilyFactoryRegistry;
-import org.terasology.world.block.family.DefaultBlockFamilyFactoryRegistry;
-import org.terasology.world.block.family.RegisterBlockFamilyFactory;
 
 /**
  * Handles an environment switch by updating the asset manager, component library, and other context objects.
@@ -64,6 +60,7 @@ public final class EnvironmentSwitchHandler {
     public EnvironmentSwitchHandler() {
     }
 
+    @SuppressWarnings("unchecked")
     public void handleSwitchToGameEnvironment(Context context) {
         ModuleManager moduleManager = context.get(ModuleManager.class);
 
@@ -75,11 +72,7 @@ public final class EnvironmentSwitchHandler {
             }
             Class<?> targetType = ReflectionUtil.getTypeParameterForSuper(copyStrategy, CopyStrategy.class, 0);
             if (targetType != null) {
-                try {
-                    copyStrategyLibrary.register(targetType, copyStrategy.newInstance());
-                } catch (InstantiationException | IllegalAccessException e) {
-                    logger.error("Cannot register CopyStrategy '{}' - failed to instantiate", copyStrategy, e);
-                }
+                registerCopyStrategy(copyStrategyLibrary, targetType, copyStrategy);
             } else {
                 logger.error("Cannot register CopyStrategy '{}' - unable to determine target type", copyStrategy);
             }
@@ -101,13 +94,10 @@ public final class EnvironmentSwitchHandler {
         registerComponents(componentLibrary, moduleManager.getEnvironment());
         registerTypeHandlers(context, typeSerializationLibrary, moduleManager.getEnvironment());
 
-        BlockFamilyFactoryRegistry blockFamilyFactoryRegistry = context.get(BlockFamilyFactoryRegistry.class);
-        loadFamilies((DefaultBlockFamilyFactoryRegistry) blockFamilyFactoryRegistry, moduleManager.getEnvironment());
-
         ModuleAwareAssetTypeManager assetTypeManager = context.get(ModuleAwareAssetTypeManager.class);
 
         /*
-         * The registring of the prefab formats is done in this method, because it needs to be done before
+         * The registering of the prefab formats is done in this method, because it needs to be done before
          * the environment of the asset manager gets changed.
          *
          * It can't be done before this method gets called because the ComponentLibrary isn't
@@ -121,6 +111,14 @@ public final class EnvironmentSwitchHandler {
 
         assetTypeManager.switchEnvironment(moduleManager.getEnvironment());
 
+    }
+
+    private <T, U extends CopyStrategy<T>> void registerCopyStrategy(CopyStrategyLibrary copyStrategyLibrary, Class<T> type, Class<U> strategy) {
+        try {
+            copyStrategyLibrary.register(type, strategy.newInstance());
+        } catch (InstantiationException | IllegalAccessException e) {
+            logger.error("Cannot register CopyStrategy '{}' - failed to instantiate", strategy, e);
+        }
     }
 
     /**
@@ -153,7 +151,7 @@ public final class EnvironmentSwitchHandler {
     }
 
 
-    public void handleSwitchToEmptyEnivronment(Context context) {
+    public void handleSwitchToEmptyEnvironment(Context context) {
         ModuleEnvironment environment = context.get(ModuleManager.class).getEnvironment();
         cheapAssetManagerUpdate(context, environment);
     }
@@ -169,26 +167,6 @@ public final class EnvironmentSwitchHandler {
         }
     }
 
-    private static void loadFamilies(DefaultBlockFamilyFactoryRegistry registry, ModuleEnvironment environment) {
-        registry.clear();
-        for (Class<?> blockFamilyFactory : environment.getTypesAnnotatedWith(RegisterBlockFamilyFactory.class)) {
-            if (!BlockFamilyFactory.class.isAssignableFrom(blockFamilyFactory)) {
-                logger.error("Cannot load {}, must be a subclass of BlockFamilyFactory", blockFamilyFactory.getSimpleName());
-                continue;
-            }
-
-            RegisterBlockFamilyFactory registerInfo = blockFamilyFactory.getAnnotation(RegisterBlockFamilyFactory.class);
-            String id = registerInfo.value();
-            logger.debug("Registering blockFamilyFactory {}", id);
-            try {
-                BlockFamilyFactory newBlockFamilyFactory = (BlockFamilyFactory) blockFamilyFactory.newInstance();
-                registry.setBlockFamilyFactory(id, newBlockFamilyFactory);
-                logger.debug("Loaded blockFamilyFactory {}", id);
-            } catch (InstantiationException | IllegalAccessException e) {
-                logger.error("Failed to load blockFamilyFactory {}", id, e);
-            }
-        }
-    }
 
     private static void registerComponents(ComponentLibrary library, ModuleEnvironment environment) {
         for (Class<? extends Component> componentType : environment.getSubtypesOf(Component.class)) {

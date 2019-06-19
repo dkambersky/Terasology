@@ -53,7 +53,7 @@ import static org.lwjgl.opengl.GL11.glTranslated;
 
 
 @RegisterSystem(RegisterMode.CLIENT)
-public class FloatingTextRenderer extends BaseComponentSystem implements  RenderSystem {
+public class FloatingTextRenderer extends BaseComponentSystem implements RenderSystem {
 
     private static final int PIXEL_PER_METER = 250;
 
@@ -82,8 +82,6 @@ public class FloatingTextRenderer extends BaseComponentSystem implements  Render
     }
 
     private void render(Iterable<EntityRef> floatingTextEntities) {
-        glDisable(GL_DEPTH_TEST);
-
         Vector3f cameraPosition = camera.getPosition();
 
         for (EntityRef entity : floatingTextEntities) {
@@ -99,21 +97,32 @@ public class FloatingTextRenderer extends BaseComponentSystem implements  Render
 
             FloatingTextComponent floatingText = entity.getComponent(FloatingTextComponent.class);
 
-            String text = floatingText.text;
+            String[] linesOfText = floatingText.text.split("\n");
             Color baseColor = floatingText.textColor;
             Color shadowColor = floatingText.textShadowColor;
             boolean underline = false;
-            int textWidth = font.getWidth(text);
+
+            int textWidth = 0;
+            for (String singleLine : linesOfText) {
+                if (font.getWidth(singleLine) > textWidth) {
+                    textWidth = font.getWidth(singleLine);
+                }
+            }
 
             FontMeshBuilder meshBuilder = new FontMeshBuilder(underlineMaterial);
 
             Map<Material, Mesh> meshMap = entityMeshCache.get(entity);
             if (meshMap == null) {
                 meshMap = meshBuilder
-                        .createTextMesh(font, Arrays.asList(text), textWidth, HorizontalAlign.CENTER, baseColor,
+                        .createTextMesh(font, Arrays.asList(linesOfText), textWidth, HorizontalAlign.CENTER, baseColor,
                                 shadowColor, underline);
                 entityMeshCache.put(entity, meshMap);
             }
+
+            if (floatingText.isOverlay) {
+                glDisable(GL_DEPTH_TEST);
+            }
+
             glPushMatrix();
 
             float scale = METER_PER_PIXEL * floatingText.scale;
@@ -135,8 +144,12 @@ public class FloatingTextRenderer extends BaseComponentSystem implements  Render
             }
 
             glPopMatrix();
+
+            // Revert to default state
+            if (floatingText.isOverlay) {
+                glEnable(GL_DEPTH_TEST);
+            }
         }
-        glEnable(GL_DEPTH_TEST);
     }
 
     private void diposeMeshMap(Map<Material, Mesh> meshMap) {
@@ -157,10 +170,6 @@ public class FloatingTextRenderer extends BaseComponentSystem implements  Render
     }
 
     @Override
-    public void renderFirstPerson() {
-    }
-
-    @Override
     public void renderOverlay() {
     }
 
@@ -168,13 +177,13 @@ public class FloatingTextRenderer extends BaseComponentSystem implements  Render
     public void renderShadows() {
     }
 
-    @ReceiveEvent(components = {FloatingTextComponent.class })
+    @ReceiveEvent(components = {FloatingTextComponent.class})
     public void onDisplayNameChange(OnChangedComponent event, EntityRef entity) {
         disposeCachedMeshOfEntity(entity);
     }
 
 
-    @ReceiveEvent(components = {FloatingTextComponent.class })
+    @ReceiveEvent(components = {FloatingTextComponent.class})
     public void onNameTagOwnerRemoved(BeforeDeactivateComponent event, EntityRef entity) {
         disposeCachedMeshOfEntity(entity);
     }

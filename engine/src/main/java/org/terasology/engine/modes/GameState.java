@@ -16,7 +16,10 @@
 
 package org.terasology.engine.modes;
 
+import org.terasology.context.Context;
 import org.terasology.engine.GameEngine;
+import org.terasology.entitySystem.entity.EntityRef;
+import org.terasology.world.chunks.event.OnChunkLoaded;
 
 /**
  * @version 0.1
@@ -31,7 +34,11 @@ public interface GameState {
 
     void init(GameEngine engine);
 
-    void dispose();
+    void dispose(boolean shuttingDown);
+
+    default void dispose() {
+        dispose(false);
+    }
 
     void handleInput(float delta);
 
@@ -48,4 +55,10 @@ public interface GameState {
      * @return identifies the target for logging events
      */
     String getLoggingPhase();
+
+    Context getContext();
+
+    default void onChunkLoaded(OnChunkLoaded chunkAvailable, EntityRef worldEntity) {
+        
+    }
 }

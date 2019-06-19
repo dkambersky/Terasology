@@ -14,6 +14,7 @@ message NetMessage {
     repeated EventMessage event = 8;
     optional int64 time = 9;
     repeated BiomeChangeMessage biomeChange = 10;
+    repeated ExtraDataChangeMessage extraDataChange = 11;
 
     optional ServerInfoRequest serverInfoRequest = 15;
     optional ServerInfoMessage serverInfo = 16;
@@ -104,6 +105,14 @@ message BiomeChangeMessage {
     extensions 5000 to max;
 }
 
+message ExtraDataChangeMessage {
+    optional int32 index = 1;
+    optional Vector3iData pos = 2;
+    optional int32 newData = 3;
+    
+    extensions 5000 to max;
+}
+
 message Vector3iData {
     optional int32 x = 1;
     optional int32 y = 2;
@@ -147,10 +156,13 @@ message ServerInfoMessage {
     repeated sint32 biomeShortId = 10 [packed=true];
     repeated string biomeId = 11;
 
+    optional string errorMessage = 12;
     optional string version = 15;
     optional string gameName = 16;
     optional int64 time = 17;
     optional float reflectionHeight = 18;
+    optional string MOTD = 19;
+    optional int32 onlinePlayersAmount = 20;
 
     extensions 5000 to max;
 }

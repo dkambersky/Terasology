@@ -29,6 +29,7 @@ import org.terasology.engine.GameThread;
 import org.terasology.engine.modes.StateLoading;
 import org.terasology.engine.module.ModuleManager;
 import org.terasology.i18n.TranslationSystem;
+import org.terasology.identity.storageServiceClient.StorageServiceWorker;
 import org.terasology.input.Keyboard;
 import org.terasology.module.ModuleRegistry;
 import org.terasology.naming.NameVersion;
@@ -87,6 +88,9 @@ public class JoinGameScreen extends CoreScreenLayer {
 
     @In
     private TranslationSystem translationSystem;
+
+    @In
+    private StorageServiceWorker storageServiceWorker;
 
     private Map<ServerInfo, Future<ServerInfoMessage>> extInfo = new HashMap<>();
 
@@ -158,6 +162,10 @@ public class JoinGameScreen extends CoreScreenLayer {
 
         if (!config.getPlayer().hasEnteredUsername()) {
             getManager().pushScreen(EnterUsernamePopup.ASSET_URI, EnterUsernamePopup.class);
+        }
+
+        if (storageServiceWorker.hasConflictingIdentities()) {
+            new IdentityConflictHelper(storageServiceWorker, getManager(), translationSystem).runSolver();
         }
     }
 
@@ -264,6 +272,22 @@ public class JoinGameScreen extends CoreScreenLayer {
         if (port != null) {
             port.bindText(new IntToStringBinding(BindHelper.bindBoundBeanProperty("port", infoBinding, ServerInfo.class, int.class)));
         }
+
+        UILabel onlinePlayers = find("onlinePlayers", UILabel.class);
+        onlinePlayers.bindText(new ReadOnlyBinding<String>() {
+            @Override
+            public String get() {
+                Future<ServerInfoMessage> info = extInfo.get(visibleList.getSelection());
+                if (info != null) {
+                    if (info.isDone()) {
+                        return getOnlinePlayersText(info);
+                    } else {
+                        return translationSystem.translate("${engine:menu#join-server-requested}");
+                    }
+                }
+                return null;
+            }
+        });
 
         UILabel modules = find("modules", UILabel.class);
         modules.bindText(new ReadOnlyBinding<String>() {
@@ -392,7 +416,13 @@ public class JoinGameScreen extends CoreScreenLayer {
     private String getWorldText(Future<ServerInfoMessage> info) {
         try {
             List<String> codedWorldInfo = new ArrayList<>();
-            for (WorldInfo wi : info.get().getWorldInfoList()) {
+            ServerInfoMessage serverInfoMessage = info.get();
+
+            if (serverInfoMessage == null) {
+                return FontColor.getColored(translationSystem.translate("${engine:menu#connection-failed}"), Color.RED);
+            }
+
+            for (WorldInfo wi : serverInfoMessage.getWorldInfoList()) {
                 float timeInDays = wi.getTime() / (float) WorldTime.DAY_LENGTH;
                 codedWorldInfo.add(String.format("%s (%.2f days)", wi.getTitle(), timeInDays));
             }
@@ -402,9 +432,29 @@ public class JoinGameScreen extends CoreScreenLayer {
         }
     }
 
+    private String getOnlinePlayersText(Future<ServerInfoMessage> info) {
+        try {
+            List<String> codedWorldInfo = new ArrayList<>();
+            ServerInfoMessage serverInfoMessage = info.get();
+
+            if (serverInfoMessage == null) {
+                return FontColor.getColored(translationSystem.translate("${engine:menu#connection-failed}"), Color.RED);
+            }
+
+            codedWorldInfo.add(String.format("%d", serverInfoMessage.getOnlinePlayersAmount()));
+            return Joiner.on('\n').join(codedWorldInfo);
+        } catch (ExecutionException | InterruptedException e) {
+            return FontColor.getColored(translationSystem.translate("${engine:menu#connection-failed}"), Color.RED);
+        }
+    }
+
     private String getModulesText(Future<ServerInfoMessage> info) {
         try {
             ServerInfoMessage serverInfoMessage = info.get();
+
+            if (serverInfoMessage == null) {
+                return FontColor.getColored(translationSystem.translate("${engine:menu#connection-failed}"), Color.RED);
+            }
 
             List<String> codedModInfo = new ArrayList<>();
             ModuleRegistry reg = moduleManager.getRegistry();
@@ -446,8 +496,15 @@ public class JoinGameScreen extends CoreScreenLayer {
     }
 
     public boolean onKeyEvent(NUIKeyEvent event) {
-        if (event.isDown() && event.getKey() == Keyboard.Key.R) {
-            refresh();
+        if (event.isDown()) {
+            if (event.getKey() == Keyboard.Key.ESCAPE) {
+                if (isEscapeToCloseAllowed()) {
+                    triggerBackAnimation();
+                    return true;
+                }
+            } else if (event.getKey() == Keyboard.Key.R) {
+                refresh();
+            }
         }
         return false;
     }

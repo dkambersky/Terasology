@@ -15,8 +15,6 @@
  */
 package org.terasology.engine.modes;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.terasology.audio.AudioManager;
 import org.terasology.config.Config;
 import org.terasology.context.Context;
@@ -30,6 +28,7 @@ import org.terasology.entitySystem.entity.internal.EngineEntityManager;
 import org.terasology.entitySystem.event.internal.EventSystem;
 import org.terasology.entitySystem.systems.UpdateSubscriberSystem;
 import org.terasology.game.GameManifest;
+import org.terasology.identity.storageServiceClient.StorageServiceWorker;
 import org.terasology.input.InputSystem;
 import org.terasology.input.cameraTarget.CameraTargetSystem;
 import org.terasology.logic.console.Console;
@@ -42,6 +41,7 @@ import org.terasology.persistence.StorageManager;
 import org.terasology.physics.engine.PhysicsEngine;
 import org.terasology.rendering.nui.NUIManager;
 import org.terasology.rendering.nui.databinding.ReadOnlyBinding;
+import org.terasology.rendering.nui.layers.mainMenu.MessagePopup;
 import org.terasology.rendering.world.WorldRenderer;
 import org.terasology.rendering.world.WorldRenderer.RenderingStage;
 import org.terasology.world.chunks.ChunkProvider;
@@ -55,8 +55,6 @@ import java.util.Collections;
  */
 public class StateIngame implements GameState {
 
-    private static final Logger logger = LoggerFactory.getLogger(StateIngame.class);
-
     private ComponentSystemManager componentSystemManager;
     private EventSystem eventSystem;
     private NUIManager nuiManager;
@@ -65,6 +63,8 @@ public class StateIngame implements GameState {
     private CameraTargetSystem cameraTargetSystem;
     private InputSystem inputSystem;
     private NetworkSystem networkSystem;
+    private StorageServiceWorker storageServiceWorker;
+    private Console console;
     private Context context;
 
     /* GAME LOOP */
@@ -92,6 +92,8 @@ public class StateIngame implements GameState {
         eventSystem.registerEventHandler(nuiManager);
         networkSystem = context.get(NetworkSystem.class);
         storageManager = context.get(StorageManager.class);
+        storageServiceWorker = context.get(StorageServiceWorker.class);
+        console = context.get(Console.class);
 
         // Show or hide the HUD according to the settings
         nuiManager.getHUD().bindVisible(new ReadOnlyBinding<Boolean>() {
@@ -100,10 +102,17 @@ public class StateIngame implements GameState {
                 return !context.get(Config.class).getRendering().getDebug().isHudHidden();
             }
         });
+
+        if (networkSystem.getMode() == NetworkMode.CLIENT) {
+            String motd = networkSystem.getServer().getInfo().getMOTD();
+            if (motd != null && motd.length() != 0) {
+                nuiManager.pushScreen(MessagePopup.ASSET_URI, MessagePopup.class).setMessage("Server MOTD", motd);
+            }
+        }
     }
 
     @Override
-    public void dispose() {
+    public void dispose(boolean shuttingDown) {
         ChunkProvider chunkProvider = context.get(ChunkProvider.class);
         chunkProvider.dispose();
 
@@ -136,11 +145,13 @@ public class StateIngame implements GameState {
 
         ModuleEnvironment oldEnvironment = context.get(ModuleManager.class).getEnvironment();
         context.get(ModuleManager.class).loadEnvironment(Collections.<Module>emptySet(), true);
-        context.get(EnvironmentSwitchHandler.class).handleSwitchToEmptyEnivronment(context);
+        if (!shuttingDown) {
+            context.get(EnvironmentSwitchHandler.class).handleSwitchToEmptyEnvironment(context);
+        }
         if (oldEnvironment != null) {
             oldEnvironment.close();
         }
-        context.get(Console.class).dispose();
+        console.dispose();
         GameThread.clearWaitingProcesses();
 
         /*
@@ -170,6 +181,8 @@ public class StateIngame implements GameState {
 
 
         updateUserInterface(delta);
+
+        storageServiceWorker.flushNotificationsToConsole(console);
     }
 
 
@@ -213,7 +226,7 @@ public class StateIngame implements GameState {
         return gameManifest.getTitle();
     }
 
-    public void renderUserInterface() {
+    private void renderUserInterface() {
         PerformanceMonitor.startActivity("Rendering NUI");
         nuiManager.render();
         PerformanceMonitor.endActivity();
@@ -227,7 +240,7 @@ public class StateIngame implements GameState {
         pauseGame = true;
     }
 
-    public void unpause() {
+    private void unpause() {
         pauseGame = false;
     }
 

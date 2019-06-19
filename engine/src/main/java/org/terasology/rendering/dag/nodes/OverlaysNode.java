@@ -18,23 +18,20 @@ package org.terasology.rendering.dag.nodes;
 import org.terasology.assets.ResourceUrn;
 import org.terasology.config.Config;
 import org.terasology.config.RenderingDebugConfig;
+import org.terasology.context.Context;
 import org.terasology.engine.ComponentSystemManager;
 import org.terasology.entitySystem.systems.RenderSystem;
 import org.terasology.monitoring.PerformanceMonitor;
-import org.terasology.registry.In;
-import org.terasology.rendering.cameras.Camera;
+import org.terasology.rendering.cameras.SubmersibleCamera;
 import org.terasology.rendering.dag.AbstractNode;
 import org.terasology.rendering.dag.WireframeCapable;
 import org.terasology.rendering.dag.WireframeTrigger;
+import org.terasology.rendering.dag.stateChanges.BindFbo;
 import org.terasology.rendering.dag.stateChanges.EnableMaterial;
 import org.terasology.rendering.dag.stateChanges.LookThrough;
-import org.terasology.rendering.dag.stateChanges.SetViewportToSizeOf;
 import org.terasology.rendering.dag.stateChanges.SetWireframe;
-import org.terasology.rendering.opengl.FBO;
 import org.terasology.rendering.opengl.fbms.DisplayResolutionDependentFBOs;
 import org.terasology.rendering.world.WorldRenderer;
-
-import static org.terasology.rendering.opengl.fbms.DisplayResolutionDependentFBOs.READONLY_GBUFFER;
 
 /**
  * This nodes renders overlays, i.e. the black lines highlighting a nearby block the user can interact with.
@@ -43,40 +40,29 @@ import static org.terasology.rendering.opengl.fbms.DisplayResolutionDependentFBO
  * must take advantage of the RenderSystem.renderOverlay() method, which is called in process().
  */
 public class OverlaysNode extends AbstractNode implements WireframeCapable {
-    private static final ResourceUrn DEFAULT_TEXTURED_MATERIAL = new ResourceUrn("engine:prog.defaultTextured");
+    private static final ResourceUrn DEFAULT_TEXTURED_MATERIAL_URN = new ResourceUrn("engine:prog.defaultTextured");
 
-    @In
     private ComponentSystemManager componentSystemManager;
-
-    @In
-    private Config config;
-
-    @In
     private WorldRenderer worldRenderer;
 
-    @In
-    private DisplayResolutionDependentFBOs displayResolutionDependentFBOs;
-
-    private Camera playerCamera;
     private SetWireframe wireframeStateChange;
-    private FBO sceneOpaqueFbo;
 
-    /**
-     * Initialises the node. -Must- be called once after instantiation.
-     */
-    @Override
-    public void initialise() {
-        wireframeStateChange = new SetWireframe(true);
-        RenderingDebugConfig renderingDebugConfig = config.getRendering().getDebug();
-        new WireframeTrigger(renderingDebugConfig, this);
+    public OverlaysNode(String nodeUri, Context context) {
+        super(nodeUri, context);
 
-        playerCamera = worldRenderer.getActiveCamera();
+        componentSystemManager = context.get(ComponentSystemManager.class);
+
+        worldRenderer = context.get(WorldRenderer.class);
+        SubmersibleCamera playerCamera = worldRenderer.getActiveCamera();
         addDesiredStateChange(new LookThrough(playerCamera));
 
-        addDesiredStateChange(new SetViewportToSizeOf(READONLY_GBUFFER, displayResolutionDependentFBOs));
-        sceneOpaqueFbo = displayResolutionDependentFBOs.get(READONLY_GBUFFER);
+        wireframeStateChange = new SetWireframe(true);
+        RenderingDebugConfig renderingDebugConfig = context.get(Config.class).getRendering().getDebug();
+        new WireframeTrigger(renderingDebugConfig, this);
 
-        addDesiredStateChange(new EnableMaterial(DEFAULT_TEXTURED_MATERIAL.toString()));
+        addDesiredStateChange(new BindFbo(context.get(DisplayResolutionDependentFBOs.class).getGBufferPair().getLastUpdatedFbo()));
+
+        addDesiredStateChange(new EnableMaterial(DEFAULT_TEXTURED_MATERIAL_URN));
     }
 
     /**
@@ -112,9 +98,7 @@ public class OverlaysNode extends AbstractNode implements WireframeCapable {
      */
     @Override
     public void process() {
-        PerformanceMonitor.startActivity("rendering/overlays");
-
-        sceneOpaqueFbo.bind(); // TODO: remove when we can bind this via a StateChange
+        PerformanceMonitor.startActivity("rendering/" + getUri());
 
         for (RenderSystem renderer : componentSystemManager.iterateRenderSubscribers()) {
             renderer.renderOverlay();

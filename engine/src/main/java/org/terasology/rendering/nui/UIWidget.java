@@ -24,6 +24,7 @@ import org.terasology.rendering.nui.events.NUIKeyEvent;
 import org.terasology.rendering.nui.skin.UISkin;
 
 import java.util.Collection;
+import java.util.Optional;
 
 /**
  */
@@ -69,6 +70,15 @@ public interface UIWidget extends Iterable<UIWidget> {
      */
     <T extends UIWidget> T find(String id, Class<T> type);
 
+    /**
+     * Try to find a widget with the given id and type, within the current widget and its contents.
+     *
+     * @param id of widget to search
+     * @param <T> type of widget to cast
+     * @return optional widget with the given id and type
+     */
+    <T extends UIWidget> Optional<T> tryFind(String id, Class<T> type);
+
     <T extends UIWidget> Collection<T> findAll(Class<T> type);
 
     void onDraw(Canvas canvas);
@@ -92,6 +102,13 @@ public interface UIWidget extends Iterable<UIWidget> {
 
     void onBindEvent(BindButtonEvent event);
 
+    /**
+     * Returns the preferred content size of this widget.
+     *
+     * @param canvas A {@link Canvas} on which this widget is drawn.
+     * @param sizeHint A {@link Vector2i} representing how much available space is for this widget.
+     * @return A {@link Vector2i} which represents the preferred size of this widget.
+     */
     Vector2i getPreferredContentSize(Canvas canvas, Vector2i sizeHint);
 
     Vector2i getMaxContentSize(Canvas canvas);

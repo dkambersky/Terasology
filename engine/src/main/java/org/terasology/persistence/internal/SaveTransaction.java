@@ -18,9 +18,9 @@ package org.terasology.persistence.internal;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import com.sun.nio.zipfs.ZipFileSystemProvider;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.terasology.engine.paths.PathManager;
 import org.terasology.entitySystem.Component;
 import org.terasology.entitySystem.entity.EntityRef;
 import org.terasology.entitySystem.entity.internal.EngineEntityManager;
@@ -31,12 +31,17 @@ import org.terasology.math.geom.Vector3f;
 import org.terasology.math.geom.Vector3i;
 import org.terasology.network.ClientComponent;
 import org.terasology.protobuf.EntityData;
+import org.terasology.recording.RecordAndReplayCurrentStatus;
+import org.terasology.recording.RecordAndReplaySerializer;
+import org.terasology.recording.RecordAndReplayStatus;
+import org.terasology.recording.RecordAndReplayUtils;
 import org.terasology.utilities.concurrency.AbstractTask;
 import org.terasology.world.chunks.internal.ChunkImpl;
 
 import java.io.BufferedOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
+import java.net.URI;
 import java.nio.file.AccessDeniedException;
 import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.FileSystem;
@@ -47,7 +52,6 @@ import java.nio.file.Path;
 import java.nio.file.SimpleFileVisitor;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.attribute.BasicFileAttributes;
-import java.nio.file.spi.FileSystemProvider;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashSet;
@@ -92,13 +96,21 @@ public class SaveTransaction extends AbstractTask {
     private final StoragePathProvider storagePathProvider;
     private final SaveTransactionHelper saveTransactionHelper;
 
+    //Record and Replay
+    private RecordAndReplaySerializer recordAndReplaySerializer;
+    private RecordAndReplayUtils recordAndReplayUtils;
+    private RecordAndReplayCurrentStatus recordAndReplayCurrentStatus;
+
 
     public SaveTransaction(EngineEntityManager privateEntityManager, EntitySetDeltaRecorder deltaToSave,
                            Map<String, EntityData.PlayerStore> unloadedPlayers,
                            Map<String, PlayerStoreBuilder> loadedPlayers, GlobalStoreBuilder globalStoreBuilder,
                            Map<Vector3i, CompressedChunkBuilder> unloadedChunks, Map<Vector3i, ChunkImpl> loadedChunks,
                            GameManifest gameManifest, boolean storeChunksInZips,
-                           StoragePathProvider storagePathProvider, Lock worldDirectoryWriteLock) {
+                           StoragePathProvider storagePathProvider, Lock worldDirectoryWriteLock,
+                           RecordAndReplaySerializer recordAndReplaySerializer,
+                           RecordAndReplayUtils recordAndReplayUtils,
+                           RecordAndReplayCurrentStatus recordAndReplayCurrentStatus) {
         this.privateEntityManager = privateEntityManager;
         this.deltaToSave = deltaToSave;
         this.unloadedPlayers = unloadedPlayers;
@@ -111,6 +123,9 @@ public class SaveTransaction extends AbstractTask {
         this.storagePathProvider = storagePathProvider;
         this.saveTransactionHelper = new SaveTransactionHelper(storagePathProvider);
         this.worldDirectoryWriteLock = worldDirectoryWriteLock;
+        this.recordAndReplaySerializer = recordAndReplaySerializer;
+        this.recordAndReplayUtils = recordAndReplayUtils;
+        this.recordAndReplayCurrentStatus = recordAndReplayCurrentStatus;
     }
 
 
@@ -121,6 +136,9 @@ public class SaveTransaction extends AbstractTask {
 
     @Override
     public void run() {
+        if (isReplay()) {
+            return;
+        }
         try {
             if (Files.exists(storagePathProvider.getUnmergedChangesPath())) {
                 // should not happen, as initialization should clean it up
@@ -129,6 +147,7 @@ public class SaveTransaction extends AbstractTask {
             saveTransactionHelper.cleanupSaveTransactionDirectory();
             applyDeltaToPrivateEntityManager();
             prepareChunksPlayersAndGlobalStore();
+            createPreviewImagesFolder();
             createSaveTransactionDirectory();
             writePlayerStores();
             writeGlobalStore();
@@ -138,14 +157,48 @@ public class SaveTransaction extends AbstractTask {
             mergeChanges();
             result = SaveTransactionResult.createSuccessResult();
             logger.info("Save game finished");
+            saveRecordingData();
         } catch (IOException | RuntimeException t) {
             logger.error("Save game creation failed", t);
             result = SaveTransactionResult.createFailureResult(t);
         }
     }
 
+    private void createPreviewImagesFolder() throws IOException {
+        Files.createDirectories(storagePathProvider.getPreviewsPath());
+    }
+
+    private void saveRecordingData() {
+        if (recordAndReplayCurrentStatus.getStatus() == RecordAndReplayStatus.RECORDING) {
+            if (recordAndReplayUtils.isShutdownRequested()) {
+                recordAndReplaySerializer.serializeRecordAndReplayData();
+
+                recordAndReplayCurrentStatus.setStatus(RecordAndReplayStatus.NOT_ACTIVATED);
+                recordAndReplayUtils.reset();
+            } else {
+                String recordingPath = PathManager.getInstance().getRecordingPath(recordAndReplayUtils.getGameTitle()).toString();
+                recordAndReplaySerializer.serializeRecordedEvents(recordingPath);
+            }
+        }
+    }
+
+    private boolean isReplay() {
+        boolean isReplay = false;
+        if (recordAndReplayCurrentStatus.getStatus() == RecordAndReplayStatus.REPLAY_FINISHED
+                || recordAndReplayCurrentStatus.getStatus() == RecordAndReplayStatus.REPLAYING) {
+
+            isReplay = true;
+            if (recordAndReplayUtils.isShutdownRequested()) {
+                recordAndReplayCurrentStatus.setStatus(RecordAndReplayStatus.NOT_ACTIVATED);
+                recordAndReplayUtils.reset();
+            }
+
+        }
+        return isReplay;
+    }
+
     private void prepareChunksPlayersAndGlobalStore() {
-        /**
+        /*
          * Currently loaded persistent entities without owner that have not been saved yet.
          */
         Set<EntityRef> unsavedEntities = new HashSet<>();
@@ -262,7 +315,7 @@ public class SaveTransaction extends AbstractTask {
             if (privateEntityManager.isActiveEntity(entityId)) {
                 entityToDestroy = privateEntityManager.getEntity(entityId);
             } else {
-                /**
+                /*
                  * Create the entity as theere could be a component that references a {@link DelayedEntityRef}
                  * with the specified id. It is important that the {@link DelayedEntityRef} will reference
                  * a destroyed {@link EntityRef} instance. That is why a entity will be created, potentially
@@ -347,8 +400,6 @@ public class SaveTransaction extends AbstractTask {
     }
 
     private void writeChunkStores() throws IOException {
-        FileSystemProvider zipProvider = new ZipFileSystemProvider();
-
         Path chunksPath = storagePathProvider.getWorldTempPath();
         Files.createDirectories(chunksPath);
         if (storeChunksInZips) {
@@ -360,7 +411,7 @@ public class SaveTransaction extends AbstractTask {
                 if (zip == null) {
                     Path targetPath = storagePathProvider.getChunkZipTempPath(chunkZipPos);
                     Files.deleteIfExists(targetPath);
-                    zip = zipProvider.newFileSystem(targetPath, CREATE_ZIP_OPTIONS);
+                    zip = FileSystems.newFileSystem(URI.create("jar:" + targetPath.toUri()), CREATE_ZIP_OPTIONS);
                     newChunkZips.put(chunkZipPos, zip);
                 }
                 Path chunkPath = zip.getPath(storagePathProvider.getChunkFilename(chunkPos));

@@ -1,5 +1,5 @@
 /*
- * Copyright 2015 MovingBlocks
+ * Copyright 2018 MovingBlocks
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -38,17 +38,18 @@ import org.terasology.assets.management.AssetManager;
 import org.terasology.entitySystem.prefab.Prefab;
 import org.terasology.math.geom.Vector3f;
 import org.terasology.math.geom.Vector4f;
+import org.terasology.registry.CoreRegistry;
 import org.terasology.utilities.gson.CaseInsensitiveEnumTypeAdapterFactory;
 import org.terasology.utilities.gson.Vector3fTypeAdapter;
 import org.terasology.utilities.gson.Vector4fTypeAdapter;
 import org.terasology.world.block.BlockPart;
 import org.terasology.world.block.DefaultColorSource;
-import org.terasology.world.block.family.BlockFamilyFactory;
-import org.terasology.world.block.family.BlockFamilyFactoryRegistry;
-import org.terasology.world.block.family.FreeformBlockFamilyFactory;
-import org.terasology.world.block.family.HorizontalBlockFamilyFactory;
+import org.terasology.world.block.family.BlockFamily;
+import org.terasology.world.block.family.BlockFamilyLibrary;
+import org.terasology.world.block.family.FreeformFamily;
+import org.terasology.world.block.family.HorizontalFamily;
 import org.terasology.world.block.family.MultiSection;
-import org.terasology.world.block.family.SymmetricBlockFamilyFactory;
+import org.terasology.world.block.family.SymmetricFamily;
 import org.terasology.world.block.shapes.BlockShape;
 import org.terasology.world.block.sounds.BlockSounds;
 import org.terasology.world.block.tiles.BlockTile;
@@ -65,18 +66,16 @@ import java.util.function.Consumer;
 import java.util.function.Supplier;
 
 /**
+ * Defines the format used to parse .block files.
  */
 public class BlockFamilyDefinitionFormat extends AbstractAssetFileFormat<BlockFamilyDefinitionData> {
 
     private static final ResourceUrn DEFAULT_SOUNDS = new ResourceUrn("engine", "default");
 
-    private final BlockFamilyFactory symmetricFamily = new SymmetricBlockFamilyFactory();
-    private final BlockFamilyFactory horizontalFamily = new HorizontalBlockFamilyFactory();
-    private final BlockFamilyFactory freeformFamily = new FreeformBlockFamilyFactory();
     private final AssetManager assetManager;
     private final Gson gson;
 
-    public BlockFamilyDefinitionFormat(AssetManager assetManager, BlockFamilyFactoryRegistry blockFamilyFactoryRegistry) {
+    public BlockFamilyDefinitionFormat(AssetManager assetManager) {
         super("block");
         this.assetManager = assetManager;
         gson = new GsonBuilder()
@@ -85,7 +84,7 @@ public class BlockFamilyDefinitionFormat extends AbstractAssetFileFormat<BlockFa
                 .registerTypeAdapter(BlockFamilyDefinitionData.class, new BlockFamilyDefinitionDataHandler())
                 .registerTypeAdapter(Vector3f.class, new Vector3fTypeAdapter())
                 .registerTypeAdapter(Vector4f.class, new Vector4fTypeAdapter())
-                .registerTypeAdapter(BlockFamilyFactory.class, new BlockFamilyFactoryHandler(blockFamilyFactoryRegistry))
+                .registerTypeAdapter(Class.class, new BlockFamilyHandler())
                 .create();
     }
 
@@ -97,14 +96,14 @@ public class BlockFamilyDefinitionFormat extends AbstractAssetFileFormat<BlockFa
             applyDefaults(resourceUrn, data.getBaseSection());
             data.getSections().values().stream().forEach(section -> applyDefaults(resourceUrn, section));
             if (!data.isTemplate()) {
-                if (data.getFamilyFactory() == null && data.getBaseSection().getShape() != null) {
+                if (data.getBlockFamily() == null && data.getBaseSection().getShape() != null) {
                     if (data.getBaseSection().getShape().isCollisionYawSymmetric()) {
-                        data.setFamilyFactory(symmetricFamily);
+                        data.setBlockFamily(SymmetricFamily.class);
                     } else {
-                        data.setFamilyFactory(horizontalFamily);
+                        data.setBlockFamily(HorizontalFamily.class);
                     }
-                } else if (data.getFamilyFactory() == null) {
-                    data.setFamilyFactory(freeformFamily);
+                } else if (data.getBlockFamily() == null) {
+                    data.setBlockFamily(FreeformFamily.class);
                 }
             }
 
@@ -141,16 +140,17 @@ public class BlockFamilyDefinitionFormat extends AbstractAssetFileFormat<BlockFa
             // Deserialize everything
             BlockFamilyDefinitionData result = new BlockFamilyDefinitionData(base);
             setBoolean(result::setTemplate, jsonObject, "template");
-            setObject(result::setFamilyFactory, jsonObject, "rotation", BlockFamilyFactory.class, context);
+            setObject(result::setBlockFamily, jsonObject, "family", Class.class, context);
             setObject(result::setCategories, jsonObject, "categories", listOfStringType, context);
 
             deserializeSectionDefinitionData(result.getBaseSection(), jsonObject, context);
 
-            if (result.getFamilyFactory() != null) {
-                for (MultiSection multiSection : result.getFamilyFactory().getMultiSections()) {
-                    if (jsonObject.has(multiSection.getName()) && jsonObject.get(multiSection.getName()).isJsonObject()) {
-                        JsonObject jsonMultiSection = jsonObject.getAsJsonObject(multiSection.getName());
-                        for (String section : multiSection.getAppliesToSections()) {
+
+            if (result.getBlockFamily() != null) {
+                for (MultiSection multiSection : BlockFamilyLibrary.getMultiSections(result.getBlockFamily())) {
+                    if (jsonObject.has(multiSection.name()) && jsonObject.get(multiSection.name()).isJsonObject()) {
+                        JsonObject jsonMultiSection = jsonObject.getAsJsonObject(multiSection.name());
+                        for (String section : multiSection.appliesToSections()) {
                             SectionDefinitionData sectionData = result.getSections().get(section);
                             if (sectionData == null) {
                                 sectionData = new SectionDefinitionData(base.getSection(section));
@@ -161,8 +161,7 @@ public class BlockFamilyDefinitionFormat extends AbstractAssetFileFormat<BlockFa
                         }
                     }
                 }
-
-                for (String section : result.getFamilyFactory().getSectionNames()) {
+                for (String section : BlockFamilyLibrary.getSections(result.getBlockFamily())) {
                     if (jsonObject.has(section) && jsonObject.get(section).isJsonObject()) {
                         SectionDefinitionData sectionData = result.getSections().get(section);
                         if (sectionData == null) {
@@ -203,6 +202,8 @@ public class BlockFamilyDefinitionFormat extends AbstractAssetFileFormat<BlockFa
 
             setFloat(data::setMass, jsonObject, "mass");
             setBoolean(data::setDebrisOnDestroy, jsonObject, "debrisOnDestroy");
+            setFloat(data::setFriction, jsonObject, "friction");
+            setFloat(data::setRestitution, jsonObject, "restitution");
 
             if (jsonObject.has("entity") && jsonObject.get("entity").isJsonObject()) {
                 JsonObject entityObject = jsonObject.getAsJsonObject("entity");
@@ -218,7 +219,6 @@ public class BlockFamilyDefinitionFormat extends AbstractAssetFileFormat<BlockFa
 
             setObject(data::setShape, jsonObject, "shape", BlockShape.class, context);
             setBoolean(data::setWater, jsonObject, "water");
-            setBoolean(data::setLava, jsonObject, "lava");
             setBoolean(data::setGrass, jsonObject, "grass");
             setBoolean(data::setIce, jsonObject, "ice");
         }
@@ -309,8 +309,8 @@ public class BlockFamilyDefinitionFormat extends AbstractAssetFileFormat<BlockFa
                 Optional<BlockFamilyDefinition> baseDef = assetManager.getAsset(basedOn.getAsString(), BlockFamilyDefinition.class);
                 if (baseDef.isPresent()) {
                     BlockFamilyDefinitionData data = baseDef.get().getData();
-                    if (data.getFamilyFactory() instanceof FreeformBlockFamilyFactory) {
-                        data.setFamilyFactory(null);
+                    if (data.getBlockFamily() == FreeformFamily.class) {
+                        data.setBlockFamily(null);
                     }
                     return data;
                 } else {
@@ -323,17 +323,15 @@ public class BlockFamilyDefinitionFormat extends AbstractAssetFileFormat<BlockFa
         }
     }
 
-    private static class BlockFamilyFactoryHandler implements JsonDeserializer<BlockFamilyFactory> {
-
-        private final BlockFamilyFactoryRegistry blockFamilyFactoryRegistry;
-
-        BlockFamilyFactoryHandler(BlockFamilyFactoryRegistry blockFamilyFactoryRegistry) {
-            this.blockFamilyFactoryRegistry = blockFamilyFactoryRegistry;
+    private static class BlockFamilyHandler implements JsonDeserializer<Class<? extends BlockFamily>> {
+        BlockFamilyHandler() {
         }
 
         @Override
-        public BlockFamilyFactory deserialize(JsonElement json, Type typeOfT, JsonDeserializationContext context) throws JsonParseException {
-            return blockFamilyFactoryRegistry.getBlockFamilyFactory(json.getAsString());
+        public Class<? extends BlockFamily> deserialize(JsonElement json, Type typeOfT, JsonDeserializationContext context) throws JsonParseException {
+
+            BlockFamilyLibrary library = CoreRegistry.get(BlockFamilyLibrary.class);
+            return library.getBlockFamily(json.getAsString());
         }
     }
 
@@ -380,6 +378,4 @@ public class BlockFamilyDefinitionFormat extends AbstractAssetFileFormat<BlockFa
             return null;
         }
     }
-
 }
-

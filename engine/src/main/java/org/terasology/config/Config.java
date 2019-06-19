@@ -32,9 +32,12 @@ import com.google.gson.JsonSerializer;
 import org.lwjgl.opengl.PixelFormat;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.terasology.config.flexible.FlexibleConfigManager;
+import org.terasology.context.Context;
 import org.terasology.engine.SimpleUri;
 import org.terasology.engine.TerasologyConstants;
 import org.terasology.engine.paths.PathManager;
+import org.terasology.engine.subsystem.Resolution;
 import org.terasology.entitySystem.Component;
 import org.terasology.input.Input;
 import org.terasology.naming.Name;
@@ -43,6 +46,7 @@ import org.terasology.naming.gson.NameTypeAdapter;
 import org.terasology.naming.gson.VersionTypeAdapter;
 import org.terasology.utilities.gson.CaseInsensitiveEnumTypeAdapterFactory;
 import org.terasology.utilities.gson.InputHandler;
+import org.terasology.utilities.gson.ResolutionHandler;
 import org.terasology.utilities.gson.SetMultimapTypeAdapter;
 import org.terasology.utilities.gson.UriTypeAdapterFactory;
 
@@ -70,15 +74,22 @@ public final class Config {
 
     private RootConfig config;
 
+    private Context context;
+
+    public Config(Context context) {
+        this.context = context;
+    }
+
     public PermissionConfig getPermission() {
         return config.getPermission();
     }
 
-    /**
-     * @return Input configuration (mostly binds)
-     */
     public InputConfig getInput() {
         return config.getInput();
+    }
+
+    public BindsConfig getBinds() {
+        return config.getBinds();
     }
 
     public ModuleConfig getDefaultModSelection() {
@@ -117,8 +128,28 @@ public final class Config {
         return config.getNuiEditor();
     }
 
+    public IdentityStorageServiceConfig getIdentityStorageService() {
+        return config.getIdentityStorageService();
+    }
+
+    public TelemetryConfig getTelemetryConfig() {
+        return config.getTelemetryConfig();
+    }
+
     public String renderConfigAsJson(Object configObject) {
         return createGson().toJsonTree(configObject).toString();
+    }
+
+    public SelectModulesConfig getSelectModulesConfig() {
+        return config.getSelectModulesConfig();
+    }
+
+    public UniverseConfig getUniverseConfig() {
+        return config.getUniverseConfig();
+    }
+
+    public WebBrowserConfig getWebBrowserConfig() {
+        return config.getWebBrowserConfig();
     }
 
     /**
@@ -130,6 +161,8 @@ public final class Config {
         } catch (IOException e) {
             logger.error("Failed to save config", e);
         }
+
+        context.get(FlexibleConfigManager.class).saveAllConfigs();
     }
 
     public void loadDefaults() {
@@ -171,7 +204,7 @@ public final class Config {
                     return Optional.of(userConfig.getAsJsonObject());
                 }
             } catch (IOException e) {
-                logger.error("Failed to load config file {}, falling back on default config");
+                logger.error("Failed to load config file {}, falling back on default config", configPath);
             }
         }
         return Optional.empty();
@@ -192,6 +225,8 @@ public final class Config {
                 .registerTypeAdapter(SetMultimap.class, new SetMultimapTypeAdapter<>(Input.class))
                 .registerTypeAdapter(SecurityConfig.class, new SecurityConfig.Handler())
                 .registerTypeAdapter(Input.class, new InputHandler())
+                .registerTypeAdapter(Resolution.class, new ResolutionHandler())
+                //.registerTypeAdapter(UniverseConfig.class, new UniverseConfig.Handler())
 
                 .registerTypeAdapter(PixelFormat.class, new PixelFormatHandler())
                 .registerTypeAdapterFactory(new CaseInsensitiveEnumTypeAdapterFactory())

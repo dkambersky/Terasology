@@ -25,6 +25,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.terasology.config.Config;
 import org.terasology.context.internal.ContextImpl;
+import org.terasology.context.internal.MockContext;
 import org.terasology.core.world.generator.trees.TreeGenerator;
 import org.terasology.core.world.generator.trees.Trees;
 import org.terasology.math.geom.BaseVector2i;
@@ -39,6 +40,7 @@ import org.terasology.world.block.BlockManager;
 import org.terasology.world.block.BlockUri;
 import org.terasology.world.chunks.Chunk;
 import org.terasology.world.chunks.ChunkConstants;
+import org.terasology.world.chunks.blockdata.ExtraBlockDataManager;
 import org.terasology.world.chunks.internal.ChunkImpl;
 
 /**
@@ -50,6 +52,7 @@ public class TreeTests {
 
     private BlockManager blockManager;
     private BiomeManager biomeManager;
+    private ExtraBlockDataManager extraDataManager;
 
     @Before
     public void setup() {
@@ -57,12 +60,14 @@ public class TreeTests {
         CoreRegistry.setContext(context);
 
         // Needed only as long as #1536 is unresolved
-        context.put(Config.class, new Config());
+        context.put(Config.class, new Config(new MockContext()));
 
         blockManager = Mockito.mock(BlockManager.class);
         Block air = blockManager.getBlock(BlockManager.AIR_ID);
 
         biomeManager = Mockito.mock(BiomeManager.class);
+        
+        extraDataManager = new ExtraBlockDataManager();
 
         Mockito.when(blockManager.getBlock(Matchers.<BlockUri>any())).thenReturn(air);
         Mockito.when(blockManager.getBlock(Matchers.<String>any())).thenReturn(air);
@@ -114,7 +119,7 @@ public class TreeTests {
 
         Rect2i chunks = Rect2i.createFromMinAndMax(-1, -1, 1, 1);
         for (BaseVector2i chunkPos : chunks.contents()) {
-            Chunk chunk = new ChunkImpl(chunkPos.getX(), 0, chunkPos.getY(), blockManager, biomeManager) {
+            Chunk chunk = new ChunkImpl(chunkPos.getX(), 0, chunkPos.getY(), blockManager, biomeManager, extraDataManager) {
                 @Override
                 public Block setBlock(int x, int y, int z, Block block) {
                     Vector3i world = chunkToWorldPosition(x, y, z);

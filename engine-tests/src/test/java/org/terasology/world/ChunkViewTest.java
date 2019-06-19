@@ -1,5 +1,5 @@
 /*
- * Copyright 2013 MovingBlocks
+ * Copyright 2018 MovingBlocks
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -13,7 +13,6 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
 package org.terasology.world;
 
 import org.junit.Before;
@@ -29,7 +28,7 @@ import org.terasology.world.biomes.BiomeManager;
 import org.terasology.world.block.Block;
 import org.terasology.world.block.BlockManager;
 import org.terasology.world.block.BlockUri;
-import org.terasology.world.block.family.SymmetricBlockFamilyFactory;
+import org.terasology.world.block.family.SymmetricFamily;
 import org.terasology.world.block.internal.BlockManagerImpl;
 import org.terasology.world.block.loader.BlockFamilyDefinition;
 import org.terasology.world.block.loader.BlockFamilyDefinitionData;
@@ -37,6 +36,7 @@ import org.terasology.world.block.shapes.BlockShape;
 import org.terasology.world.block.tiles.NullWorldAtlas;
 import org.terasology.world.chunks.Chunk;
 import org.terasology.world.chunks.ChunkConstants;
+import org.terasology.world.chunks.blockdata.ExtraBlockDataManager;
 import org.terasology.world.chunks.internal.ChunkImpl;
 import org.terasology.world.internal.ChunkViewCore;
 import org.terasology.world.internal.ChunkViewCoreImpl;
@@ -45,14 +45,13 @@ import java.io.IOException;
 
 import static org.junit.Assert.assertEquals;
 
-/**
- */
 public class ChunkViewTest extends TerasologyTestingEnvironment {
 
     Block airBlock;
     Block solidBlock;
     private BlockManager blockManager;
     private BiomeManager biomeManager;
+    private ExtraBlockDataManager extraDataManager;
 
     @Before
     public void setup() throws IOException {
@@ -62,12 +61,14 @@ public class ChunkViewTest extends TerasologyTestingEnvironment {
         airBlock = blockManager.getBlock(BlockManager.AIR_ID);
 
         biomeManager = Mockito.mock(BiomeManager.class);
+        
+        extraDataManager = new ExtraBlockDataManager();
 
         BlockFamilyDefinitionData solidData = new BlockFamilyDefinitionData();
         solidData.getBaseSection().setDisplayName("Stone");
         solidData.getBaseSection().setShape(assetManager.getAsset("engine:cube", BlockShape.class).get());
         solidData.getBaseSection().setTranslucent(false);
-        solidData.setFamilyFactory(new SymmetricBlockFamilyFactory());
+        solidData.setBlockFamily(SymmetricFamily.class);
         assetManager.loadAsset(new ResourceUrn("engine:stone"), solidData, BlockFamilyDefinition.class);
         solidBlock = blockManager.getBlock(new BlockUri(new ResourceUrn("engine:stone")));
     }
@@ -152,6 +153,6 @@ public class ChunkViewTest extends TerasologyTestingEnvironment {
     }
 
     private Chunk createChunk(int x, int y, int z) {
-        return new ChunkImpl(new Vector3i(x, y, z), blockManager, biomeManager);
+        return new ChunkImpl(new Vector3i(x, y, z), blockManager, biomeManager, extraDataManager);
     }
 }

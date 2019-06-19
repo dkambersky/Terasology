@@ -32,6 +32,34 @@
                 }
             },
             {
+                "type": "engine:flowLayout",
+                "layoutInfo": {
+                    "use-content-width": true,
+                    "use-content-height": true,
+                    "position-top": {
+                        "offset": 8
+                    },
+                    "position-right": {
+                        "offset": 8
+                    }
+                },
+                "contents": [
+                    {
+                        "type": "UILabel",
+                        "id": "storageServiceStatus"
+                    },
+                    {
+                        "type": "UISpace",
+                        "size": [8, 0]
+                    },
+                    {
+                        "type": "UIButton",
+                        "id": "storageServiceAction",
+                        "text": "${engine:menu#game-settings}"
+                    }
+                ]
+            },
+            {
                 "type": "engine:columnLayout",
                 "layoutInfo": {
                     "use-content-width": true,
@@ -72,12 +100,12 @@
                     },
                     {
                         "type": "UIButton",
-                        "id": "credits",
-                        "text": "${engine:menu#credits}"
+                        "id": "extras",
+                        "text": "${engine:menu#extras-label}"
                     },
                     {
-                        "type": "UISpace",
-                        "size": [1, 64]
+                        "type" : "UISpace",
+                        "size" : [1, 64]
                     },
                     {
                         "type": "UIButton",
@@ -87,16 +115,18 @@
                 ]
             },
             {
-                "type": "UIButton",
-                "id": "crashReporter",
-                "text": "${engine:menu#crash-reporter}",
+                "type": "UILabel",
+                "id": "nonNativeJvmWarning",
+                "family": "warning",
+                "text": "${engine:menu#non-native-jvm-warn}",
+                "visible": false,
                 "layoutInfo": {
                     "use-content-width": true,
                     "use-content-height": true,
                     "position-bottom": {
                         "offset": 8
                     },
-                    "position-right": {
+                    "position-left": {
                         "offset": 8
                     }
                 }

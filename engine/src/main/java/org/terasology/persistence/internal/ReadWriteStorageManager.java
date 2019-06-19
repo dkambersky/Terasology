@@ -20,9 +20,11 @@ import com.google.common.collect.Maps;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.terasology.config.Config;
+import org.terasology.config.UniverseConfig;
 import org.terasology.engine.ComponentSystemManager;
 import org.terasology.engine.Time;
 import org.terasology.engine.module.ModuleManager;
+import org.terasology.engine.paths.PathManager;
 import org.terasology.entitySystem.Component;
 import org.terasology.entitySystem.entity.EntityRef;
 import org.terasology.entitySystem.entity.internal.EngineEntityManager;
@@ -44,7 +46,12 @@ import org.terasology.network.ClientComponent;
 import org.terasology.network.NetworkSystem;
 import org.terasology.persistence.typeHandling.TypeSerializationLibrary;
 import org.terasology.protobuf.EntityData;
+import org.terasology.recording.RecordAndReplayCurrentStatus;
+import org.terasology.recording.RecordAndReplaySerializer;
+import org.terasology.recording.RecordAndReplayStatus;
+import org.terasology.recording.RecordAndReplayUtils;
 import org.terasology.registry.CoreRegistry;
+import org.terasology.rendering.opengl.ScreenGrabber;
 import org.terasology.utilities.FilesUtil;
 import org.terasology.utilities.concurrency.ShutdownTask;
 import org.terasology.utilities.concurrency.Task;
@@ -57,7 +64,9 @@ import org.terasology.world.block.family.BlockFamily;
 import org.terasology.world.chunks.Chunk;
 import org.terasology.world.chunks.ChunkProvider;
 import org.terasology.world.chunks.ManagedChunk;
+import org.terasology.world.chunks.blockdata.ExtraBlockDataManager;
 import org.terasology.world.chunks.internal.ChunkImpl;
+import org.terasology.world.internal.WorldInfo;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -72,8 +81,6 @@ import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
-/**
- */
 public final class ReadWriteStorageManager extends AbstractStorageManager implements EntityDestroySubscriber, EntityChangeSubscriber, DelayedEntityRefFactory {
     private static final Logger logger = LoggerFactory.getLogger(ReadWriteStorageManager.class);
 
@@ -108,20 +115,27 @@ public final class ReadWriteStorageManager extends AbstractStorageManager implem
 
     private EngineEntityManager privateEntityManager;
     private EntitySetDeltaRecorder entitySetDeltaRecorder;
+    private RecordAndReplaySerializer recordAndReplaySerializer;
+    private RecordAndReplayUtils recordAndReplayUtils;
+    private RecordAndReplayCurrentStatus recordAndReplayCurrentStatus;
     /**
      * A component library that provides a copy() method that replaces {@link EntityRef}s which {@link EntityRef}s
      * that will use the privateEntityManager.
      */
     private ComponentLibrary entityRefReplacingComponentLibrary;
 
-    public ReadWriteStorageManager(Path savePath, ModuleEnvironment environment, EngineEntityManager entityManager,
-                                   BlockManager blockManager, BiomeManager biomeManager) throws IOException {
-        this(savePath, environment, entityManager, blockManager, biomeManager, true);
+    public ReadWriteStorageManager(Path savePath, ModuleEnvironment environment, EngineEntityManager entityManager, BlockManager blockManager,
+                                   BiomeManager biomeManager, ExtraBlockDataManager extraDataManager, RecordAndReplaySerializer recordAndReplaySerializer,
+                                   RecordAndReplayUtils recordAndReplayUtils, RecordAndReplayCurrentStatus recordAndReplayCurrentStatus) throws IOException {
+        this(savePath, environment, entityManager, blockManager, biomeManager, extraDataManager,
+            true, recordAndReplaySerializer, recordAndReplayUtils, recordAndReplayCurrentStatus);
     }
 
-    public ReadWriteStorageManager(Path savePath, ModuleEnvironment environment, EngineEntityManager entityManager,
-                                   BlockManager blockManager, BiomeManager biomeManager, boolean storeChunksInZips) throws IOException {
-        super(savePath, environment, entityManager, blockManager, biomeManager, storeChunksInZips);
+    ReadWriteStorageManager(Path savePath, ModuleEnvironment environment, EngineEntityManager entityManager,
+                                   BlockManager blockManager, BiomeManager biomeManager, ExtraBlockDataManager extraDataManager, boolean storeChunksInZips,
+                                   RecordAndReplaySerializer recordAndReplaySerializer, RecordAndReplayUtils recordAndReplayUtils,
+                            RecordAndReplayCurrentStatus recordAndReplayCurrentStatus) throws IOException {
+        super(savePath, environment, entityManager, blockManager, biomeManager, extraDataManager, storeChunksInZips);
 
         entityManager.subscribeForDestruction(this);
         entityManager.subscribeForChanges(this);
@@ -134,6 +148,9 @@ public final class ReadWriteStorageManager extends AbstractStorageManager implem
         this.entityRefReplacingComponentLibrary = privateEntityManager.getComponentLibrary()
                 .createCopyUsingCopyStrategy(EntityRef.class, new DelayedEntityRefCopyStrategy(this));
         this.entitySetDeltaRecorder = new EntitySetDeltaRecorder(this.entityRefReplacingComponentLibrary);
+        this.recordAndReplaySerializer = recordAndReplaySerializer;
+        this.recordAndReplayUtils = recordAndReplayUtils;
+        this.recordAndReplayCurrentStatus = recordAndReplayCurrentStatus;
 
     }
 
@@ -146,6 +163,9 @@ public final class ReadWriteStorageManager extends AbstractStorageManager implem
 
     @Override
     public void finishSavingAndShutdown() {
+        if (recordAndReplayCurrentStatus.getStatus() == RecordAndReplayStatus.RECORDING) {
+            recordAndReplayUtils.setShutdownRequested(true);
+        }
         saveThreadManager.shutdown(new ShutdownTask(), true);
         checkSaveTransactionAndClearUpIfItIsDone();
     }
@@ -200,7 +220,7 @@ public final class ReadWriteStorageManager extends AbstractStorageManager implem
     private void addChunksToSaveTransaction(SaveTransactionBuilder saveTransactionBuilder,
                                             ChunkProvider chunkProvider) {
         unloadedAndSavingChunkMap.clear();
-        /**
+        /*
          * New entries might be added concurrently. By using putAll + clear to transfer entries we might loose new
          * ones added in between putAll and clear. Bz iterating we can make sure that all entires removed
          * from unloadedAndUnsavedChunkMap get added to unloadedAndSavingChunkMap.
@@ -236,6 +256,9 @@ public final class ReadWriteStorageManager extends AbstractStorageManager implem
     }
 
     private void waitForCompletionOfPreviousSave() {
+        if (recordAndReplayCurrentStatus.getStatus() == RecordAndReplayStatus.REPLAY_FINISHED) {
+            recordAndReplayUtils.setShutdownRequested(true); //Important to trigger complete serialization in a recording
+        }
         if (saveTransaction != null && saveTransaction.getResult() == null) {
             saveThreadManager.shutdown(new ShutdownTask(), true);
             saveThreadManager.restart();
@@ -245,7 +268,8 @@ public final class ReadWriteStorageManager extends AbstractStorageManager implem
 
     private SaveTransaction createSaveTransaction() {
         SaveTransactionBuilder saveTransactionBuilder = new SaveTransactionBuilder(privateEntityManager,
-                entitySetDeltaRecorder, isStoreChunksInZips(), getStoragePathProvider(), worldDirectoryWriteLock);
+                entitySetDeltaRecorder, isStoreChunksInZips(), getStoragePathProvider(), worldDirectoryWriteLock,
+                recordAndReplaySerializer, recordAndReplayUtils, recordAndReplayCurrentStatus);
 
         ChunkProvider chunkProvider = CoreRegistry.get(ChunkProvider.class);
         NetworkSystem networkSystem = CoreRegistry.get(NetworkSystem.class);
@@ -262,7 +286,7 @@ public final class ReadWriteStorageManager extends AbstractStorageManager implem
     private void addPlayersToSaveTransaction(SaveTransactionBuilder saveTransactionBuilder,
                                              NetworkSystem networkSystem) {
         unloadedAndSavingPlayerMap.clear();
-        /**
+        /*
          * New entries might be added concurrently. By using putAll + clear to transfer entries we might loose new
          * ones added in between putAll and clear. By iterating we can make sure that all entities removed
          * from unloadedAndUnsavedPlayerMap get added to unloadedAndSavingPlayerMap.
@@ -341,6 +365,7 @@ public final class ReadWriteStorageManager extends AbstractStorageManager implem
         BlockManager blockManager = CoreRegistry.get(BlockManager.class);
         BiomeManager biomeManager = CoreRegistry.get(BiomeManager.class);
         WorldProvider worldProvider = CoreRegistry.get(WorldProvider.class);
+        UniverseConfig universeConfig = config.getUniverseConfig();
         Time time = CoreRegistry.get(Time.class);
         Game game = CoreRegistry.get(Game.class);
 
@@ -362,8 +387,11 @@ public final class ReadWriteStorageManager extends AbstractStorageManager implem
             String id = biomeManager.getBiomeId(biome);
             biomeIdMap.put(id, shortId);
         }
+        List<WorldInfo> worlds = universeConfig.getWorlds();
+        for (WorldInfo worldInfo: worlds) {
+            gameManifest.addWorld(worldInfo);
+        }
         gameManifest.setBiomeIdMap(biomeIdMap);
-        gameManifest.addWorld(worldProvider.getWorldInfo());
         saveTransactionBuilder.setGameManifest(gameManifest);
     }
 
@@ -377,9 +405,12 @@ public final class ReadWriteStorageManager extends AbstractStorageManager implem
         }
 
         checkSaveTransactionAndClearUpIfItIsDone();
-        if (saveRequested || isSavingNecessary()) {
+        if (saveRequested) {
             startSaving();
+        } else if (isSavingNecessary()) {
+            startAutoSaving();
         }
+
     }
 
     private boolean isRunModeAllowSaving() {
@@ -389,7 +420,7 @@ public final class ReadWriteStorageManager extends AbstractStorageManager implem
 
     private void startSaving() {
         logger.info("Saving - Creating game snapshot");
-        PerformanceMonitor.startActivity("Auto Saving");
+        PerformanceMonitor.startActivity("Saving");
         ComponentSystemManager componentSystemManager = CoreRegistry.get(ComponentSystemManager.class);
         for (ComponentSystem sys : componentSystemManager.iterateAll()) {
             sys.preSave();
@@ -399,15 +430,38 @@ public final class ReadWriteStorageManager extends AbstractStorageManager implem
         saveTransaction = createSaveTransaction();
         saveThreadManager.offer(saveTransaction);
 
+        if (recordAndReplayCurrentStatus.getStatus() == RecordAndReplayStatus.NOT_ACTIVATED) {
+            saveGamePreviewImage();
+        }
+
         for (ComponentSystem sys : componentSystemManager.iterateAll()) {
             sys.postSave();
         }
-        scheduleNextAutoSave();
         PerformanceMonitor.endActivity();
         entitySetDeltaRecorder = new EntitySetDeltaRecorder(this.entityRefReplacingComponentLibrary);
         logger.info("Saving - Snapshot created: Writing phase starts");
     }
 
+    private void startAutoSaving() {
+        logger.info("Auto Saving - Creating game snapshot");
+        PerformanceMonitor.startActivity("Auto Saving");
+        ComponentSystemManager componentSystemManager = CoreRegistry.get(ComponentSystemManager.class);
+        for (ComponentSystem sys : componentSystemManager.iterateAll()) {
+            sys.preAutoSave();
+        }
+
+        saveTransaction = createSaveTransaction();
+        saveThreadManager.offer(saveTransaction);
+
+        for (ComponentSystem sys : componentSystemManager.iterateAll()) {
+            sys.postAutoSave();
+        }
+
+        scheduleNextAutoSave();
+        PerformanceMonitor.endActivity();
+        entitySetDeltaRecorder = new EntitySetDeltaRecorder(this.entityRefReplacingComponentLibrary);
+        logger.info("Auto Saving - Snapshot created: Writing phase starts");
+    }
 
     private boolean isSavingNecessary() {
         ChunkProvider chunkProvider = CoreRegistry.get(ChunkProvider.class);
@@ -428,8 +482,16 @@ public final class ReadWriteStorageManager extends AbstractStorageManager implem
     }
 
     private void scheduleNextAutoSave() {
-        long msBetweenAutoSave = config.getSystem().getMaxSecondsBetweenSaves() * 1000;
+        long msBetweenAutoSave = (long) config.getSystem().getMaxSecondsBetweenSaves() * 1000;
         nextAutoSave = System.currentTimeMillis() + msBetweenAutoSave;
+    }
+
+    private void saveGamePreviewImage() {
+        final ScreenGrabber screenGrabber = CoreRegistry.get(ScreenGrabber.class);
+        final Game game = CoreRegistry.get(Game.class);
+        if (screenGrabber != null && game != null) {
+            screenGrabber.takeGamePreview(PathManager.getInstance().getSavePath(game.getName()));
+        }
     }
 
     @Override

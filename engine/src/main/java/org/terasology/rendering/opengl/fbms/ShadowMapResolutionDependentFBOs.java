@@ -18,23 +18,32 @@ package org.terasology.rendering.opengl.fbms;
 import java.beans.PropertyChangeEvent;
 import java.beans.PropertyChangeListener;
 import java.util.Map;
-import org.terasology.assets.ResourceUrn;
 import org.terasology.config.Config;
 import org.terasology.config.RenderingConfig;
+import org.terasology.engine.SimpleUri;
 import org.terasology.registry.CoreRegistry;
 import org.terasology.rendering.opengl.AbstractFBOsManager;
 import org.terasology.rendering.opengl.FBO;
 import org.terasology.rendering.opengl.FBOConfig;
 
 /**
- * TODO: Add javadocs
- * TODO: Better naming
+ * An instance of this class manages the ShadowMap FBOs, regenerating as necessary when a user changes
+ * the resolution of the shadow maps via the SHADOW_MAP_RESOLUTION setting in the RenderingConfig.
+ *
+ * Shadow Maps and FBOs are plural because the base class is capable of handling multiple shadow maps,
+ * i.e. to simulate the shadows of more than one light source, i.e. multiple suns. This doesn't imply
+ * that the rest of the engine is capable of that.
  */
 public class ShadowMapResolutionDependentFBOs extends AbstractFBOsManager implements PropertyChangeListener {
+    // TODO: see if we can pass the Context to the constructor and initialize these variables there.
     private Config config = CoreRegistry.get(Config.class);
     private RenderingConfig renderingConfig = config.getRendering();
     private FBO.Dimensions shadowMapResolution;
 
+    /**
+     * The constructor: creates an instance of this class and subscribes to the
+     * SHADOW_MAP_RESOLUTION setting of the Rendering Config, listening for changes.
+     */
     public ShadowMapResolutionDependentFBOs() {
         renderingConfig.subscribe(RenderingConfig.SHADOW_MAP_RESOLUTION, this);
         int resolution = renderingConfig.getShadowMapResolution();
@@ -44,7 +53,7 @@ public class ShadowMapResolutionDependentFBOs extends AbstractFBOsManager implem
     @Override
     public FBO request(FBOConfig fboConfig) {
         FBO fbo;
-        ResourceUrn fboName = fboConfig.getName();
+        SimpleUri fboName = fboConfig.getName();
         if (fboConfigs.containsKey(fboName)) {
             if (!fboConfig.equals(fboConfigs.get(fboName))) {
                 throw new IllegalArgumentException("Requested FBO is already available with different configuration");
@@ -57,14 +66,23 @@ public class ShadowMapResolutionDependentFBOs extends AbstractFBOsManager implem
         return fbo;
     }
 
+    /**
+     * Triggers the regeneration of the shadow map FBOs, if necessary.
+     *
+     * Once triggered this method checks if "dynamic shadows" are enabled.
+     * If dynamics shadows are enabled it obtains the new Shadow Map resolution from the event
+     * passed to the method and regenerates the shadow map FBOs.
+     *
+     * @param evt a PropertyChangeEvent, containing the shadow map resolution.
+     */
     @Override
     public void propertyChange(PropertyChangeEvent evt) {
         if (renderingConfig.isDynamicShadows()) {
             int shadowMapResFromSettings = (int) evt.getNewValue();
             shadowMapResolution = new FBO.Dimensions(shadowMapResFromSettings, shadowMapResFromSettings);
 
-            for (Map.Entry<ResourceUrn, FBOConfig> entry : fboConfigs.entrySet()) {
-                ResourceUrn fboName = entry.getKey();
+            for (Map.Entry<SimpleUri, FBOConfig> entry : fboConfigs.entrySet()) {
+                SimpleUri fboName = entry.getKey();
                 FBOConfig fboConfig = entry.getValue();
 
                 if (fboLookup.containsKey(fboName)) {

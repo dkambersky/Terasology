@@ -1,5 +1,5 @@
 /*
- * Copyright 2016 MovingBlocks
+ * Copyright 2018 MovingBlocks
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -13,7 +13,6 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
 package org.terasology.world.block.internal;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -45,6 +44,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.ReentrantLock;
 
@@ -68,8 +68,9 @@ public class BlockManagerImpl extends BlockManager {
 
     private Set<BlockRegistrationListener> listeners = Sets.newLinkedHashSet();
 
+
     private boolean generateNewIds;
-    private int nextId = 1;
+    private AtomicInteger nextId = new AtomicInteger(1);
 
     // Cache this for performance reasons because a lookup by BlockURI happens the first time a block is set when getting the previous block.
     // This causes performance problems eventually down the line when it then uses the ResourceUrn's hashcode to do a lookup into the block map.
@@ -91,9 +92,9 @@ public class BlockManagerImpl extends BlockManager {
                            Map<String, Short> knownBlockMappings) {
 
         if (knownBlockMappings.size() >= MAX_ID) {
-            nextId = UNKNOWN_ID;
+            nextId.set(UNKNOWN_ID);
         } else if (knownBlockMappings.size() > 0) {
-            nextId = (short) knownBlockMappings.size();
+            nextId.set(knownBlockMappings.values().stream().max(Short::compareTo).orElse((short) 0) + 1);
         }
         registeredBlockInfo.set(new RegisteredState());
 
@@ -128,10 +129,10 @@ public class BlockManagerImpl extends BlockManager {
     }
 
     private short getNextId() {
-        if (nextId > MAX_ID) {
+        if (nextId.get() > MAX_ID) {
             return UNKNOWN_ID;
         }
-        return (short) nextId++;
+        return (short) nextId.getAndIncrement();
     }
 
     private Block getAirBlock() {
@@ -196,7 +197,7 @@ public class BlockManagerImpl extends BlockManager {
             newState.blocksById.put(block.getId(), block);
             newState.idByUri.put(block.getURI(), block.getId());
         } else {
-            logger.info("Failed to register block {} - no id", block, block.getId());
+            logger.info("Failed to register block {} - no id", block);
         }
         newState.blocksByUri.put(block.getURI(), block);
     }
@@ -251,6 +252,11 @@ public class BlockManagerImpl extends BlockManager {
                         block.setId(getNextId());
                     }
                     registerFamily(newFamily.get());
+
+                } catch (Exception ex) {
+                    // A family can fail to register if the block is missing uri or list of categories,
+                    // but can fail to register if the family throws an error for any reason
+                    logger.error("Failed to register block familiy '{}'", newFamily, ex);
                 } finally {
                     lock.unlock();
                 }
@@ -363,5 +369,4 @@ public class BlockManagerImpl extends BlockManager {
             this.idByUri = new TObjectShortHashMap<>(oldState.idByUri);
         }
     }
-
 }

@@ -57,6 +57,7 @@ public class NetworkOwnershipTest extends TerasologyTestingEnvironment {
         context.put(ModuleManager.class, moduleManager);
         EngineTime mockTime = mock(EngineTime.class);
         networkSystem = new NetworkSystemImpl(mockTime, context);
+        networkSystem.setContext(context);
         context.put(NetworkSystem.class, networkSystem);
 
         EntitySystemSetupUtil.addReflectionBasedLibraries(context);
@@ -73,6 +74,7 @@ public class NetworkOwnershipTest extends TerasologyTestingEnvironment {
         networkSystem.mockHost();
         networkSystem.connectToEntitySystem(entityManager, context.get(EventLibrary.class), mock(BlockEntityRegistry.class));
         networkSystem.registerNetworkEntity(clientEntity);
+        context.put(ServerConnectListManager.class, new ServerConnectListManager(context));
     }
 
     private void connectClient() {

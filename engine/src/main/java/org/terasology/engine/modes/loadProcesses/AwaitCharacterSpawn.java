@@ -35,7 +35,7 @@ public class AwaitCharacterSpawn implements LoadProcess {
 
     @Override
     public String getMessage() {
-        return "Awaiting Character Spawn...";
+        return  "${engine:menu#awaiting-character-spawn}";
     }
 
     @Override
@@ -47,6 +47,7 @@ public class AwaitCharacterSpawn implements LoadProcess {
         LocalPlayer localPlayer = context.get(LocalPlayer.class);
         ClientComponent client = localPlayer.getClientEntity().getComponent(ClientComponent.class);
         if (client != null && client.character.exists()) {
+            client.character.send(new AwaitedLocalCharacterSpawnEvent());
             return true;
         } else {
             chunkProvider.completeUpdate();

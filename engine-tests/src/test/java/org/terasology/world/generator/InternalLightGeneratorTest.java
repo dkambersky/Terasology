@@ -1,5 +1,5 @@
 /*
- * Copyright 2013 MovingBlocks
+ * Copyright 2018 MovingBlocks
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -13,7 +13,6 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
 package org.terasology.world.generator;
 
 import org.junit.Before;
@@ -30,7 +29,7 @@ import org.terasology.world.biomes.BiomeManager;
 import org.terasology.world.block.Block;
 import org.terasology.world.block.BlockManager;
 import org.terasology.world.block.BlockUri;
-import org.terasology.world.block.family.SymmetricBlockFamilyFactory;
+import org.terasology.world.block.family.SymmetricFamily;
 import org.terasology.world.block.internal.BlockManagerImpl;
 import org.terasology.world.block.loader.BlockFamilyDefinition;
 import org.terasology.world.block.loader.BlockFamilyDefinitionData;
@@ -38,13 +37,12 @@ import org.terasology.world.block.shapes.BlockShape;
 import org.terasology.world.block.tiles.NullWorldAtlas;
 import org.terasology.world.chunks.Chunk;
 import org.terasology.world.chunks.ChunkConstants;
+import org.terasology.world.chunks.blockdata.ExtraBlockDataManager;
 import org.terasology.world.chunks.internal.ChunkImpl;
 import org.terasology.world.propagation.light.InternalLightProcessor;
 
 import static org.junit.Assert.assertEquals;
 
-/**
- */
 public class InternalLightGeneratorTest extends TerasologyTestingEnvironment {
 
     Block airBlock;
@@ -53,6 +51,7 @@ public class InternalLightGeneratorTest extends TerasologyTestingEnvironment {
 
     private BlockManager blockManager;
     private BiomeManager biomeManager;
+    private ExtraBlockDataManager extraDataManager;
 
 
     @Before
@@ -64,12 +63,14 @@ public class InternalLightGeneratorTest extends TerasologyTestingEnvironment {
         airBlock = blockManager.getBlock(BlockManager.AIR_ID);
 
         biomeManager = Mockito.mock(BiomeManager.class);
+        
+        extraDataManager = new ExtraBlockDataManager();
 
         BlockFamilyDefinitionData solidData = new BlockFamilyDefinitionData();
         solidData.getBaseSection().setDisplayName("Stone");
         solidData.getBaseSection().setShape(assetManager.getAsset("engine:cube", BlockShape.class).get());
         solidData.getBaseSection().setTranslucent(false);
-        solidData.setFamilyFactory(new SymmetricBlockFamilyFactory());
+        solidData.setBlockFamily(SymmetricFamily.class);
         assetManager.loadAsset(new ResourceUrn("engine:stone"), solidData, BlockFamilyDefinition.class);
         solidBlock = blockManager.getBlock(new BlockUri(new ResourceUrn("engine:stone")));
 
@@ -77,14 +78,14 @@ public class InternalLightGeneratorTest extends TerasologyTestingEnvironment {
         fullLightData.getBaseSection().setDisplayName("Torch");
         fullLightData.getBaseSection().setShape(assetManager.getAsset("engine:cube", BlockShape.class).get());
         fullLightData.getBaseSection().setLuminance(ChunkConstants.MAX_LIGHT);
-        fullLightData.setFamilyFactory(new SymmetricBlockFamilyFactory());
+        fullLightData.setBlockFamily(SymmetricFamily.class);
         assetManager.loadAsset(new ResourceUrn("engine:torch"), fullLightData, BlockFamilyDefinition.class);
         fullLight = blockManager.getBlock(new BlockUri(new ResourceUrn("engine:torch")));
     }
 
     @Test
     public void testUnblockedSunlightRegenPropagation() {
-        Chunk chunk = new ChunkImpl(0, 0, 0, blockManager, biomeManager);
+        Chunk chunk = new ChunkImpl(0, 0, 0, blockManager, biomeManager, extraDataManager);
         InternalLightProcessor.generateInternalLighting(chunk);
 
         for (Vector3i pos : Region3i.createFromMinAndSize(Vector3i.zero(), new Vector3i(ChunkConstants.SIZE_X, ChunkConstants.SIZE_Y, ChunkConstants.SIZE_Z))) {
@@ -95,7 +96,7 @@ public class InternalLightGeneratorTest extends TerasologyTestingEnvironment {
 
     @Test
     public void testBlockedSunlightRegenPropagationResets() {
-        Chunk chunk = new ChunkImpl(0, 0, 0, blockManager, biomeManager);
+        Chunk chunk = new ChunkImpl(0, 0, 0, blockManager, biomeManager, extraDataManager);
         for (Vector3i pos : Region3i.createFromMinAndSize(new Vector3i(0, 60, 0), new Vector3i(ChunkConstants.SIZE_X, 1, ChunkConstants.SIZE_Z))) {
             chunk.setBlock(pos, solidBlock);
         }
@@ -116,7 +117,7 @@ public class InternalLightGeneratorTest extends TerasologyTestingEnvironment {
 
     @Test
     public void testBlockedAtTopSunlightRegenPropagationResets() {
-        Chunk chunk = new ChunkImpl(0, 0, 0, blockManager, biomeManager);
+        Chunk chunk = new ChunkImpl(0, 0, 0, blockManager, biomeManager, extraDataManager);
         for (Vector3i pos : Region3i.createFromMinAndSize(new Vector3i(0, 63, 0), new Vector3i(ChunkConstants.SIZE_X, 1, ChunkConstants.SIZE_Z))) {
             chunk.setBlock(pos, solidBlock);
         }
@@ -130,7 +131,7 @@ public class InternalLightGeneratorTest extends TerasologyTestingEnvironment {
 
     @Test
     public void testUnblockedSunlightPropagationAfterHittingMaxRegen() {
-        Chunk chunk = new ChunkImpl(0, 0, 0, blockManager, biomeManager);
+        Chunk chunk = new ChunkImpl(0, 0, 0, blockManager, biomeManager, extraDataManager);
         InternalLightProcessor.generateInternalLighting(chunk);
 
         for (Vector3i pos : Region3i.createFromMinAndSize(new Vector3i(0, 15, 0), new Vector3i(ChunkConstants.SIZE_X, ChunkConstants.SIZE_Y - 15,
@@ -147,7 +148,7 @@ public class InternalLightGeneratorTest extends TerasologyTestingEnvironment {
 
     @Test
     public void testBlockedSunlightPropagation() {
-        Chunk chunk = new ChunkImpl(0, 0, 0, blockManager, biomeManager);
+        Chunk chunk = new ChunkImpl(0, 0, 0, blockManager, biomeManager, extraDataManager);
         for (Vector3i pos : Region3i.createFromMinAndSize(new Vector3i(0, 4, 0), new Vector3i(ChunkConstants.SIZE_X, 1, ChunkConstants.SIZE_Z))) {
             chunk.setBlock(pos, solidBlock);
         }
@@ -161,7 +162,7 @@ public class InternalLightGeneratorTest extends TerasologyTestingEnvironment {
 
     @Test
     public void testUnblockedSunlightPropagation() {
-        Chunk chunk = new ChunkImpl(0, 0, 0, blockManager, biomeManager);
+        Chunk chunk = new ChunkImpl(0, 0, 0, blockManager, biomeManager, extraDataManager);
         InternalLightProcessor.generateInternalLighting(chunk);
 
         for (Vector3i pos : Region3i.createFromMinAndSize(new Vector3i(0, 0, 0), new Vector3i(ChunkConstants.SIZE_X, 15,
@@ -172,7 +173,7 @@ public class InternalLightGeneratorTest extends TerasologyTestingEnvironment {
 
     @Test
     public void testHorizontalSunlightPropagation() {
-        Chunk chunk = new ChunkImpl(0, 0, 0, blockManager, biomeManager);
+        Chunk chunk = new ChunkImpl(0, 0, 0, blockManager, biomeManager, extraDataManager);
         for (Vector3i pos : Region3i.createFromMinAndSize(new Vector3i(0, 4, 0), new Vector3i(ChunkConstants.SIZE_X, 1, ChunkConstants.SIZE_Z))) {
             chunk.setBlock(pos, solidBlock);
         }
@@ -193,7 +194,7 @@ public class InternalLightGeneratorTest extends TerasologyTestingEnvironment {
 
     @Test
     public void testLightPropagation() {
-        Chunk chunk = new ChunkImpl(0, 0, 0, blockManager, biomeManager);
+        Chunk chunk = new ChunkImpl(0, 0, 0, blockManager, biomeManager, extraDataManager);
         chunk.setBlock(16, 32, 16, fullLight);
 
         InternalLightProcessor.generateInternalLighting(chunk);

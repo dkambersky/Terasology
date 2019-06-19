@@ -16,7 +16,6 @@
 package org.terasology.logic.actions;
 
 import com.google.common.collect.Lists;
-import org.terasology.utilities.Assets;
 import org.terasology.audio.StaticSound;
 import org.terasology.audio.events.PlaySoundEvent;
 import org.terasology.entitySystem.entity.EntityBuilder;
@@ -35,6 +34,7 @@ import org.terasology.logic.location.LocationComponent;
 import org.terasology.math.geom.Vector3f;
 import org.terasology.math.geom.Vector3i;
 import org.terasology.registry.In;
+import org.terasology.utilities.Assets;
 import org.terasology.utilities.random.FastRandom;
 import org.terasology.utilities.random.Random;
 import org.terasology.world.BlockEntityRegistry;
@@ -48,7 +48,7 @@ import java.util.Optional;
 
 @RegisterSystem(RegisterMode.AUTHORITY)
 public class ExplosionAuthoritySystem extends BaseComponentSystem {
-    static final String DELAYED_EXPLOSION_ACTION_ID = "Delayed Explosion";
+    public static final String DELAYED_EXPLOSION_ACTION_ID = "Delayed Explosion";
 
     @In
     private WorldProvider worldProvider;
@@ -107,7 +107,7 @@ public class ExplosionAuthoritySystem extends BaseComponentSystem {
     }
 
     void doExplosion(ExplosionActionComponent explosionComp, Vector3f origin, EntityRef instigatingBlockEntity) {
-        EntityBuilder builder = entityManager.newBuilder("engine:smokeExplosion");
+        EntityBuilder builder = entityManager.newBuilder("core:smokeExplosion");
         builder.getComponent(LocationComponent.class).setWorldPosition(origin);
         EntityRef smokeEntity = builder.build();
 
@@ -157,13 +157,23 @@ public class ExplosionAuthoritySystem extends BaseComponentSystem {
 
     @ReceiveEvent
     public void onDelayedExplosion(DelayedActionTriggeredEvent event, EntityRef entityRef,
-                                   ExplosionActionComponent explosionActionComponent,
-                                   BlockComponent blockComponent) {
+                                    ExplosionActionComponent explosionActionComponent) {
         if (event.getActionId().equals(DELAYED_EXPLOSION_ACTION_ID)) {
-            // always destroy the block that caused the explosion
-            worldProvider.setBlock(blockComponent.getPosition(), blockManager.getBlock(BlockManager.AIR_ID));
-            // create the explosion from the block's location
-            doExplosion(explosionActionComponent, blockComponent.getPosition().toVector3f(), entityRef);
+            //check if the exploding entity is a block or not
+            if (entityRef.hasComponent(BlockComponent.class)) {
+                BlockComponent blockComponent = entityRef.getComponent(BlockComponent.class);
+                // always destroy the block that caused the explosion
+                worldProvider.setBlock(blockComponent.position, blockManager.getBlock(BlockManager.AIR_ID));
+                // create the explosion from the block's location
+                doExplosion(explosionActionComponent, blockComponent.position.toVector3f(), entityRef);
+            } else if (entityRef.hasComponent(LocationComponent.class)) {
+                // get the position of the non-block entity to make it explode from there
+                Vector3f position = entityRef.getComponent(LocationComponent.class).getWorldPosition();
+                // destroy the non-block entity
+                entityRef.destroy();
+                // create the explosion from the non-block entity location
+                doExplosion(explosionActionComponent, position, EntityRef.NULL);
+            }
         }
     }
 }

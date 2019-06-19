@@ -37,8 +37,9 @@ Contributors
  [Rez 'zproc' N.](https://github.com/zproc),
  [Christoph "Chrisk" Köbke](https://github.com/ChrisKoebke),
  [Maternal](http://forum.terasology.org/members/maternal.810/),
- [Trekmarvel](https://github.com/Trekmarvel)
-* Design Team: 
+ [Trekmarvel](https://github.com/Trekmarvel),
+ [quaternius](https://github.com/quaternius) ([Twitter](https://twitter.com/quaternius))
+* Design Team:
  [Rasmus 'Cervator' Praestholm](https://github.com/Cervator),
  [Overdhose](https://github.com/Overdhose),
  [Cynthia 'woodspeople' Kurtz](http://forum.terasology.org/members/woodspeople.34/),
@@ -191,7 +192,82 @@ Contributors
  [AWildBeard ](https://github.com/AWildBeard ),
  [vampcat](https://github.com/vampcat),
  [ThompsonTyler](https://github.com/ThompsonTyler),
- [Parygind](https://github.com/Parygind)
+ [Parygind](https://github.com/Parygind),
+ [elwe74](https://github.com/elwe74),
+ [ianbrobin](https://github.com/ianbrobin),
+ [gianluca-nitti](https://github.com/gianluca-nitti),
+ [ar0ne](https://github.com/ar0ne),
+ [Vizaxo](https://github.com/Vizaxo),
+ [theobisproject](https://github.com/theobisproject),
+ [omomthings](https://github.com/omomthings),
+ [njd5475](https://github.com/njd5475),
+ [Owl-A](https://github.com/Owl-A),
+ [niksoc](https://github.com/niksoc),
+ [TheFlash98](https://github.com/TheFlash98),
+ [Dane99](https://github.com/Dane99),
+ [Derpthemeus](https://github.com/Derpthemeus),
+ [Aaron Harris](https://github.com/aaron-harris),
+ [floppypanda](https://github.com/floppypanda),
+ [Naman-sopho](https://github.com/Naman-sopho),
+ [NicholasBatesNZ](https://github.com/NicholasBatesNZ),
+ [digitalripperynr](https://github.com/digitalripperynr),
+ [FieryPhoenix909](https://github.com/FieryPhoenix909),
+ [Adrijaned](https://github.com/Adrijaned),
+ [anuar2k](https://github.com/anuar2k),
+ [4Denthusiast](https://github.com/4Denthusiast),
+ [dacharya64](https://github.com/dacharya64),
+ [Naman-sopho](https://github.com/Naman-sopho),
+ [TheFlash98](https://github.com/TheFlash98),
+ [iaronaraujo](https://github.com/iaronaraujo),
+ [l0ftyWhizZ](https://github.com/l0ftyWhizZ),
+ [manas96](https://github.com/manas96),
+ [morrilet](https://github.com/morrilet),
+ [J-Dill](https://github.com/J-Dill),
+ [mwesolowski](https://github.com/mwesolowski),
+ [Shade254](https://github.com/Shade254),
+ [Maximetinu](https://github.com/Maximetinu),
+ [readv](https://github.com/readv),
+ [Arihant-Joshi](https://github.com/Arihant-Joshi),
+ [Austin 'skate54345' Kelly](https://github.com/skate54345),
+ [Inei1](https://github.com/Inei1),
+ [dorasun](https://github.com/dorasun),
+ [oekonomi](https://github.com/oekonomi),
+ [Chris 'cwgreene' Greene](https://github.com/cwgreene),
+ [AdamAboudi](https://github.com/AdamAboudi),
+ [lgzy](https://github.com/lgzy),
+ [dave2s](https://github.com/dave2s),
+ [asiekierka](https://github.com/asiekierka),
+ [llvieira](https://github.com/llvieira),
+ [pardovot](https://github.com/pardovot),
+ [brylie](https://github.com/brylie),
+ [Joseph5610](https://github.com/Joseph5610),
+ [fallazc](https://github.com/fallazc),
+ [andrasveto](https://github.com/andrasveto),
+ [JustPRV](https://github.com/JustPRV),
+ [Edvinas01](https://github.com/Edvinas01),
+ [mwvdev](https://github.com/mwvdev),
+ [nschnitzer](https://github.com/nschnitzer),
+ [AndyTechGuy](https://github.com/AndyTechGuy),
+ [iHDeveloper](https://github.com/iHDeveloper),
+ [PutawanDE](https://github.com/PutawanDE),
+ [bpas247](https://github.com/bpas247),
+ [Koward](https://github.com/Koward),
+ [RatMoleRat](https://github.com/RatMoleRat),
+ [rezonant](https://github.com/rezonant),
+ [fishfred](https://github.com/fishfred),
+ [Snooober](https://github.com/Snooober),
+ [costinvisan](https://github.com/costinvisan),
+ [Vishwaak](https://github.com/Vishwaak),
+ [shaunakdixit](https://github.com/shaunakdixit),
+ [e-aakash](https://github.com/e-aakash),
+ [majordwarf](https://github.com/majordwarf),
+ [Soundwave](https://github.com/PS-Soundwave),
+ [mayant15](https://github.com/mayant15),
+ [kinshukk](https://github.com/kinshukk),
+ [darshan3](https://github.com/darshan3),
+ [Loonride](https://github.com/Loonride),
+ [casals](https://github.com/casals),
+ [Prafful 'profgrammer' Javare](https://github.com/profgrammer)
 * GUI Team:
  [Anton "small-jeeper" Kireev](https://github.com/small-jeeper),
  [miniME89](https://github.com/miniME89),
@@ -228,6 +304,7 @@ Soundtrack and Sound Effects
 * Door Open sound by Pagancow, from FreeSound.org
 * Door Close sound by Fresco, from FreeSound.org
 * Camera Click Noise from Snapper4298, from FreeSound.org
+* Block dig and destroy sounds by Austin Kelly
 * Other sound effects created by Exile.
 
 Icons
@@ -280,6 +357,6 @@ Icons prepared by kartikey0303 (also CC BY 4.0)
 Additional Notes
 --------
 
-A few of Terasology's base textures use the awesome [Good Morning Craft](http://www.minecraftforum.net/forums/mapping-and-modding/resource-packs/1227051-16x-good-morning-craft) texture pack by Louis Durrant. Make sure to visit his <a href="http://www.carrotcakestudios.co.uk/">homepage</a> and support his work.
+A few of Terasology's base textures use the awesome [Good Morning Craft](http://www.minecraftforum.net/forums/mapping-and-modding/resource-packs/1227051-16x-good-morning-craft) texture pack by Louis Durrant. Make sure to visit his [homepage](http://www.carrotcakestudios.co.uk/) and support his work.
 
 Our default font is ["Noto" by Google](http://www.google.com/get/noto), which is released under the [Apache 2.0 License](http://www.apache.org/licenses/LICENSE-2.0.html) just like Terasology. More on the [font in the wiki](https://github.com/MovingBlocks/Terasology/wiki/Text-and-Font).

@@ -41,8 +41,6 @@ import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
 
-/**
- */
 public class JoinServer implements LoadProcess {
     private static final Logger logger = LoggerFactory.getLogger(JoinServer.class);
 
@@ -64,7 +62,7 @@ public class JoinServer implements LoadProcess {
     @Override
     public String getMessage() {
         if (applyModuleThread != null) {
-            return "Scanning for Assets...";
+            return "${engine:menu#scanning-for-assets}";
         } else {
             return joinStatus.getCurrentActivity();
         }

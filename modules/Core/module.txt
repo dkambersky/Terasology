@@ -1,10 +1,9 @@
 {
     "id" : "Core",
-    "version" : "1.4.1-SNAPSHOT",
+    "version" : "2.2.1-SNAPSHOT",
     "displayName" : "Core Content",
     "description" : "This module adds a set of base content for Terasology",
-    "dependencies" :
-    [
-        {"id": "engine", "minVersion": "1.0.0"}
+    "dependencies" : [
+        {"id" : "Inventory", "minVersion" : "1.0.0"}
     ]
 }

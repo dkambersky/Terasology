@@ -63,19 +63,18 @@ import org.terasology.monitoring.PerformanceMonitor;
 import org.terasology.physics.CollisionGroup;
 import org.terasology.physics.HitResult;
 import org.terasology.physics.StandardCollisionGroup;
+import org.terasology.physics.bullet.shapes.BulletCollisionShapeFactory;
 import org.terasology.physics.components.RigidBodyComponent;
 import org.terasology.physics.components.TriggerComponent;
 import org.terasology.physics.engine.CharacterCollider;
 import org.terasology.physics.engine.PhysicsEngine;
-import org.terasology.physics.engine.PhysicsLiquidWrapper;
 import org.terasology.physics.engine.PhysicsSystem;
-import org.terasology.physics.engine.PhysicsWorldWrapper;
 import org.terasology.physics.engine.RigidBody;
-import org.terasology.physics.shapes.BoxShapeComponent;
-import org.terasology.physics.shapes.CapsuleShapeComponent;
-import org.terasology.physics.shapes.CylinderShapeComponent;
-import org.terasology.physics.shapes.HullShapeComponent;
-import org.terasology.physics.shapes.SphereShapeComponent;
+import org.terasology.physics.components.shapes.BoxShapeComponent;
+import org.terasology.physics.components.shapes.CapsuleShapeComponent;
+import org.terasology.physics.components.shapes.CylinderShapeComponent;
+import org.terasology.physics.components.shapes.HullShapeComponent;
+import org.terasology.physics.components.shapes.SphereShapeComponent;
 import org.terasology.registry.CoreRegistry;
 import org.terasology.world.BlockEntityRegistry;
 import org.terasology.world.WorldProvider;
@@ -102,6 +101,8 @@ public class BulletPhysics implements PhysicsEngine {
 
     private final Deque<RigidBodyRequest> insertionQueue = Lists.newLinkedList();
     private final Deque<BulletRigidBody> removalQueue = Lists.newLinkedList();
+
+    private final BulletCollisionShapeFactory collisionShapeFactory = new BulletCollisionShapeFactory();
 
     private final CollisionDispatcher dispatcher;
     private final BroadphaseInterface broadphase;
@@ -456,10 +457,11 @@ public class BulletPhysics implements PhysicsEngine {
             float scale = location.getWorldScale();
             shape.setLocalScaling(new Vector3f(scale, scale, scale));
             List<CollisionGroup> detectGroups = Lists.newArrayList(trigger.detectGroups);
+            CollisionGroup collisionGroup = trigger.collisionGroup;
             PairCachingGhostObject triggerObj = createCollider(
                     VecMath.to(location.getWorldPosition()),
                     shape,
-                    StandardCollisionGroup.SENSOR.getFlag(),
+                    collisionGroup.getFlag(),
                     combineGroups(detectGroups),
                     CollisionFlags.NO_CONTACT_RESPONSE);
             triggerObj.setUserPointer(entity);
@@ -523,6 +525,7 @@ public class BulletPhysics implements PhysicsEngine {
             collider.rb.setAngularFactor(VecMath.to(rigidBody.angularFactor));
             collider.rb.setLinearFactor(VecMath.to(rigidBody.linearFactor));
             collider.rb.setFriction(rigidBody.friction);
+            collider.rb.setRestitution(rigidBody.restitution);
             collider.collidesWith = combineGroups(rigidBody.collidesWith);
             updateKinematicSettings(rigidBody, collider);
             BulletRigidBody oldBody = entityRigidBodies.put(entity, collider);
@@ -714,7 +717,7 @@ public class BulletPhysics implements PhysicsEngine {
                         otherEntity = (EntityRef) ((CollisionObject) initialPair.pProxy0.clientObject).getUserPointer();
                     }
                 }
-                if (otherEntity == null) {
+                if (otherEntity == null || otherEntity == EntityRef.NULL) {
                     continue;
                 }
                 BroadphasePair pair = world.getPairCache().findPair(initialPair.pProxy0, initialPair.pProxy1);
@@ -729,7 +732,11 @@ public class BulletPhysics implements PhysicsEngine {
                     for (int point = 0; point < manifold.getNumContacts(); ++point) {
                         ManifoldPoint manifoldPoint = manifold.getContactPoint(point);
                         if (manifoldPoint.getDistance() < 0) {
-                            collisionPairs.add(new PhysicsSystem.CollisionPair(entity, otherEntity));
+                            collisionPairs.add(new PhysicsSystem.CollisionPair(entity, otherEntity,
+                                    VecMath.from(manifoldPoint.positionWorldOnA),
+                                    VecMath.from(manifoldPoint.positionWorldOnB),
+                                    manifoldPoint.getDistance(),
+                                    VecMath.from(manifoldPoint.normalWorldOnB)));
                             break;
                         }
                     }
@@ -922,6 +929,7 @@ public class BulletPhysics implements PhysicsEngine {
             BulletSweepCallback callback = new BulletSweepCallback(collider, new org.terasology.math.geom.Vector3f(0, 1, 0), slopeFactor);
             callback.collisionFilterGroup = collider.getBroadphaseHandle().collisionFilterGroup;
             callback.collisionFilterMask = collider.getBroadphaseHandle().collisionFilterMask;
+            callback.collisionFilterMask = (short) (callback.collisionFilterMask & (~StandardCollisionGroup.SENSOR.getFlag()));
             collider.convexSweepTest((ConvexShape) (collider.getCollisionShape()), startTransform, endTransform, callback, allowedPenetration);
             return callback;
         }

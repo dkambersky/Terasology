@@ -1,5 +1,5 @@
 /*
- * Copyright 2014 MovingBlocks
+ * Copyright 2019 MovingBlocks
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,18 +15,18 @@
  */
 package org.terasology.rendering.nui.widgets;
 
-
 import org.terasology.math.geom.Vector2i;
 import org.terasology.rendering.assets.texture.TextureRegion;
 import org.terasology.rendering.nui.Canvas;
 import org.terasology.rendering.nui.Color;
 import org.terasology.rendering.nui.CoreWidget;
 import org.terasology.rendering.nui.LayoutConfig;
+import org.terasology.rendering.nui.ScaleMode;
 import org.terasology.rendering.nui.databinding.Binding;
 import org.terasology.rendering.nui.databinding.DefaultBinding;
 
 /**
- *  A widget to display an image
+ *  A widget to display an image.
  */
 public class UIImage extends CoreWidget {
     @LayoutConfig
@@ -34,6 +34,9 @@ public class UIImage extends CoreWidget {
 
     @LayoutConfig
     private Binding<Color> tint = new DefaultBinding<>(Color.WHITE);
+
+    @LayoutConfig
+    private boolean ignoreAspectRatio;
 
     public UIImage() {
     }
@@ -51,10 +54,28 @@ public class UIImage extends CoreWidget {
         this.image.set(image);
     }
 
+    public UIImage(String id, TextureRegion image, boolean ignoreAspectRatio) {
+        super(id);
+        this.image.set(image);
+        this.ignoreAspectRatio = ignoreAspectRatio;
+    }
+
     @Override
     public void onDraw(Canvas canvas) {
         if (image.get() != null) {
-            canvas.drawTexture(image.get(), tint.get());
+            if (ignoreAspectRatio) {
+                ScaleMode scaleMode = canvas.getCurrentStyle().getTextureScaleMode();
+
+                if (image.get().getWidth() > (image.get().getHeight() * 2)) {
+                    canvas.getCurrentStyle().setTextureScaleMode(ScaleMode.STRETCH);
+                } else {
+                    canvas.getCurrentStyle().setTextureScaleMode(ScaleMode.SCALE_FILL);
+                }
+                canvas.drawTexture(image.get(), tint.get());
+                canvas.getCurrentStyle().setTextureScaleMode(scaleMode);
+            } else {
+                canvas.drawTexture(image.get(), tint.get());
+            }
         }
     }
 
@@ -101,5 +122,4 @@ public class UIImage extends CoreWidget {
     public void bindTint(Binding<Color> binding) {
         this.tint = binding;
     }
-
 }

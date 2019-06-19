@@ -31,6 +31,7 @@ import org.terasology.engine.module.ModuleManager;
 import org.terasology.entitySystem.entity.EntityRef;
 import org.terasology.entitySystem.entity.internal.EngineEntityManager;
 import org.terasology.entitySystem.entity.internal.EntityInfoComponent;
+import org.terasology.entitySystem.entity.internal.EntityScope;
 import org.terasology.entitySystem.metadata.ComponentLibrary;
 import org.terasology.entitySystem.prefab.Prefab;
 import org.terasology.entitySystem.prefab.PrefabData;
@@ -42,6 +43,7 @@ import org.terasology.entitySystem.stubs.StringComponent;
 import org.terasology.network.NetworkSystem;
 import org.terasology.persistence.serializers.EntitySerializer;
 import org.terasology.protobuf.EntityData;
+import org.terasology.recording.RecordAndReplayCurrentStatus;
 import org.terasology.registry.CoreRegistry;
 import org.terasology.testUtil.ModuleManagerFactory;
 import org.terasology.utilities.Assets;
@@ -50,6 +52,8 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 import static org.mockito.Mockito.mock;
+import static org.terasology.entitySystem.entity.internal.EntityScope.CHUNK;
+import static org.terasology.entitySystem.entity.internal.EntityScope.GLOBAL;
 
 /**
  */
@@ -67,6 +71,7 @@ public class EntitySerializerTest {
     public static void setupClass() throws Exception {
         context = new ContextImpl();
         CoreRegistry.setContext(context);
+        context.put(RecordAndReplayCurrentStatus.class, new RecordAndReplayCurrentStatus());
         moduleManager = ModuleManagerFactory.create();
         context.put(ModuleManager.class, moduleManager);
 
@@ -239,14 +244,28 @@ public class EntitySerializerTest {
     public void testAlwaysRelevantPersisted() throws Exception {
         EntityRef entity = entityManager.create(prefab);
         boolean defaultSetting = entity.isAlwaysRelevant();
-        entity.setAlwaysRelevant(!defaultSetting);
+        EntityScope newScope = defaultSetting ? CHUNK : GLOBAL;
+        entity.setScope(newScope);
 
         EntityData.Entity entityData = entitySerializer.serialize(entity);
         long nextId = entityManager.getNextId();
         entityManager.clear();
         entityManager.setNextId(nextId);
         EntityRef newEntity = entitySerializer.deserialize(entityData);
+        assertEquals(newScope, newEntity.getScope());
         assertEquals(!defaultSetting, newEntity.isAlwaysRelevant());
+    }
+
+    @Test
+    public void testScopePersisted() {
+        EntityRef entity = entityManager.create(prefab);
+        for (EntityScope scope : EntityScope.values()) {
+            entity.setScope(scope);
+
+            entity = serializeDeserializeEntity(entity);
+
+            assertEquals(scope, entity.getScope());
+        }
     }
 
     @Test
@@ -264,4 +283,13 @@ public class EntitySerializerTest {
         assertTrue(loadedEntity.exists());
         assertTrue(loadedEntity.hasComponent(MappedTypeComponent.class));
     }
+
+    private EntityRef serializeDeserializeEntity(EntityRef entity) {
+        EntityData.Entity entityData = entitySerializer.serialize(entity);
+        long nextId = entityManager.getNextId();
+        entityManager.clear();
+        entityManager.setNextId(nextId);
+        return entitySerializer.deserialize(entityData);
+    }
+
 }

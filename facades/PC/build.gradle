@@ -213,11 +213,20 @@ task createVersionFile(type: Copy) {
     filter(FixCrLfFilter, eol:FixCrLfFilter.CrLf.newInstance("crlf"))
 }
 
+// TODO: This could probably be done more Gradley (engine project resource dir instead of direct path?) and with some variables
+task copyCreditsFile(type: Copy) {
+    description "Copies the credits file into the engine's resource dir where it'll be read at runtime"
+    from "$rootDir/docs"
+    into "$rootDir/engine/src/main/resources"
+    include "Credits.md"
+}
+
 // Main application dist target. Does NOT include any modules.
 task distApp (type: Sync) {
     description = "Creates an application package for distribution"
 
     dependsOn createVersionFile
+    dependsOn copyCreditsFile
     dependsOn rootProject.extractNatives
     dependsOn jar
 
@@ -251,12 +260,6 @@ task distApp (type: Sync) {
     into(dirNatives) {
         from "$rootDir/$dirNatives"
     }
-}
-
-// This is a TEMPORARY tweak to make "changing" dependencies always ('0') check for newer snapshots available
-// TODO: Remove this when versioning and promotion works fully, then we shouldn't care about snapshots normally anyway
-configurations.all {
-    resolutionStrategy.cacheChangingModulesFor 0, 'seconds'
 }
 
 // Distribute modules - only grabs Core in Jenkins but locally will grab any present. "Distros" now handle Jenkins packs

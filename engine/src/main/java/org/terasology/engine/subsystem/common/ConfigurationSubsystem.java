@@ -19,13 +19,23 @@ import com.google.common.collect.Iterables;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.terasology.config.Config;
+import org.terasology.config.facade.BindsConfiguration;
+import org.terasology.config.facade.BindsConfigurationImpl;
+import org.terasology.config.facade.InputDeviceConfiguration;
+import org.terasology.config.facade.InputDeviceConfigurationImpl;
+import org.terasology.config.flexible.FlexibleConfig;
+import org.terasology.config.flexible.FlexibleConfigImpl;
+import org.terasology.config.flexible.FlexibleConfigManager;
+import org.terasology.config.flexible.FlexibleConfigManagerImpl;
 import org.terasology.context.Context;
+import org.terasology.engine.SimpleUri;
 import org.terasology.engine.TerasologyConstants;
 import org.terasology.engine.subsystem.EngineSubsystem;
 import org.terasology.identity.CertificateGenerator;
 import org.terasology.identity.CertificatePair;
 import org.terasology.identity.PrivateIdentityCertificate;
 import org.terasology.identity.PublicIdentityCertificate;
+import org.terasology.identity.storageServiceClient.StorageServiceWorker;
 
 /**
  * The configuration subsystem manages Terasology's configuration
@@ -42,8 +52,18 @@ public class ConfigurationSubsystem implements EngineSubsystem {
 
     @Override
     public void preInitialise(Context rootContext) {
-        config = new Config();
+        config = new Config(rootContext);
         config.load();
+
+        FlexibleConfigManager flexibleConfigManager = new FlexibleConfigManagerImpl();
+        rootContext.put(FlexibleConfigManager.class, flexibleConfigManager);
+
+        // TODO: Update rendering config description
+        FlexibleConfig renderingFlexibleConfig = new FlexibleConfigImpl("Rendering Config");
+        flexibleConfigManager.addConfig(new SimpleUri("engine:rendering"), renderingFlexibleConfig);
+
+        flexibleConfigManager.loadAllConfigs();
+        // Add settings to RenderingFC
 
         String serverPortProperty = System.getProperty(SERVER_PORT_PROPERTY);
         if (serverPortProperty != null) {
@@ -62,7 +82,18 @@ public class ConfigurationSubsystem implements EngineSubsystem {
 
         // TODO: Move to display subsystem
         logger.info("Video Settings: {}", config.renderConfigAsJson(config.getRendering()));
+
         rootContext.put(Config.class, config);
+        //add facades
+        rootContext.put(InputDeviceConfiguration.class, new InputDeviceConfigurationImpl(config));
+        rootContext.put(BindsConfiguration.class, new BindsConfigurationImpl(config));
+    }
+
+    @Override
+    public void postInitialise(Context rootContext) {
+        StorageServiceWorker storageServiceWorker = new StorageServiceWorker(rootContext);
+        storageServiceWorker.initializeFromConfig();
+        rootContext.put(StorageServiceWorker.class, storageServiceWorker);
     }
 
     private void checkServerIdentity() {

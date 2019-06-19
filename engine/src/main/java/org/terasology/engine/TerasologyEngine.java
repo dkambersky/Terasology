@@ -1,5 +1,5 @@
 /*
- * Copyright 2016 MovingBlocks
+ * Copyright 2018 MovingBlocks
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -13,7 +13,6 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
 package org.terasology.engine;
 
 import com.google.common.base.Preconditions;
@@ -25,6 +24,7 @@ import org.slf4j.LoggerFactory;
 import org.terasology.assets.AssetFactory;
 import org.terasology.assets.management.AssetManager;
 import org.terasology.assets.module.ModuleAwareAssetTypeManager;
+import org.terasology.config.Config;
 import org.terasology.context.Context;
 import org.terasology.context.internal.ContextImpl;
 import org.terasology.engine.bootstrap.EnvironmentSwitchHandler;
@@ -44,6 +44,7 @@ import org.terasology.engine.subsystem.common.PhysicsSubsystem;
 import org.terasology.engine.subsystem.common.ThreadManagerSubsystem;
 import org.terasology.engine.subsystem.common.TimeSubsystem;
 import org.terasology.engine.subsystem.common.WorldGenerationSubsystem;
+import org.terasology.engine.subsystem.common.TelemetrySubSystem;
 import org.terasology.entitySystem.prefab.Prefab;
 import org.terasology.entitySystem.prefab.PrefabData;
 import org.terasology.entitySystem.prefab.internal.PojoPrefab;
@@ -53,7 +54,12 @@ import org.terasology.logic.behavior.asset.BehaviorTree;
 import org.terasology.logic.behavior.asset.BehaviorTreeData;
 import org.terasology.monitoring.Activity;
 import org.terasology.monitoring.PerformanceMonitor;
+import org.terasology.network.NetworkSystem;
 import org.terasology.persistence.typeHandling.TypeSerializationLibrary;
+import org.terasology.recording.CharacterStateEventPositionMap;
+import org.terasology.recording.DirectionAndOriginPosRecorderList;
+import org.terasology.recording.RecordAndReplayCurrentStatus;
+import org.terasology.recording.RecordAndReplayUtils;
 import org.terasology.reflection.copy.CopyStrategyLibrary;
 import org.terasology.reflection.reflect.ReflectFactory;
 import org.terasology.reflection.reflect.ReflectionReflectFactory;
@@ -63,8 +69,6 @@ import org.terasology.rendering.nui.asset.UIElement;
 import org.terasology.rendering.nui.skin.UISkin;
 import org.terasology.rendering.nui.skin.UISkinData;
 import org.terasology.version.TerasologyVersion;
-import org.terasology.world.block.family.BlockFamilyFactoryRegistry;
-import org.terasology.world.block.family.DefaultBlockFamilyFactoryRegistry;
 import org.terasology.world.block.loader.BlockFamilyDefinition;
 import org.terasology.world.block.loader.BlockFamilyDefinitionData;
 import org.terasology.world.block.loader.BlockFamilyDefinitionFormat;
@@ -76,6 +80,7 @@ import org.terasology.world.block.sounds.BlockSoundsData;
 import org.terasology.world.block.tiles.BlockTile;
 import org.terasology.world.block.tiles.TileData;
 
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Deque;
 import java.util.Iterator;
@@ -115,6 +120,8 @@ public class TerasologyEngine implements GameEngine {
 
     private static final int ONE_MEBIBYTE = 1024 * 1024;
 
+    private final List<Class<?>> classesOnClasspathsToAddToEngine = new ArrayList<>();
+
     private GameState currentState;
     private GameState pendingState;
     private Set<StateChangeSubscriber> stateChangeSubscribers = Sets.newLinkedHashSet();
@@ -145,7 +152,18 @@ public class TerasologyEngine implements GameEngine {
     public TerasologyEngine(TimeSubsystem timeSubsystem, Collection<EngineSubsystem> subsystems) {
 
         this.rootContext = new ContextImpl();
+        rootContext.put(GameEngine.class, this);
         this.timeSubsystem = timeSubsystem;
+
+        //Record and Replay classes
+        RecordAndReplayCurrentStatus recordAndReplayCurrentStatus = new RecordAndReplayCurrentStatus();
+        rootContext.put(RecordAndReplayCurrentStatus.class, recordAndReplayCurrentStatus);
+        RecordAndReplayUtils recordAndReplayUtils = new RecordAndReplayUtils();
+        rootContext.put(RecordAndReplayUtils.class, recordAndReplayUtils);
+        CharacterStateEventPositionMap characterStateEventPositionMap = new CharacterStateEventPositionMap();
+        rootContext.put(CharacterStateEventPositionMap.class, characterStateEventPositionMap);
+        DirectionAndOriginPosRecorderList directionAndOriginPosRecorderList = new DirectionAndOriginPosRecorderList();
+        rootContext.put(DirectionAndOriginPosRecorderList.class, directionAndOriginPosRecorderList);
         /*
          * We can't load the engine without core registry yet.
          * e.g. the statically created MaterialLoader needs the CoreRegistry to get the AssetManager.
@@ -166,9 +184,18 @@ public class TerasologyEngine implements GameEngine {
         this.allSubsystems.add(new WorldGenerationSubsystem());
         this.allSubsystems.add(new GameSubsystem());
         this.allSubsystems.add(new I18nSubsystem());
+        this.allSubsystems.add(new TelemetrySubSystem());
     }
 
-    private void initialize() {
+    /**
+     * Provide ability to set additional engine classpath locations.   This must be called before initialize() or run().
+     * @param clazz any class that appears in the resource location to treat as an engine classpath.
+     */
+    protected void addToClassesOnClasspathsToAddToEngine(Class<?> clazz) {
+        classesOnClasspathsToAddToEngine.add(clazz);
+    }
+
+    public void initialize() {
         Thread.currentThread().setPriority(Thread.MAX_PRIORITY);
         Stopwatch totalInitTime = Stopwatch.createStarted();
         try {
@@ -196,7 +223,7 @@ public class TerasologyEngine implements GameEngine {
 
             verifyInitialisation();
 
-            /**
+            /*
              * Prevent objects being put in engine context after init phase. Engine states should use/create a
              * child context.
              */
@@ -206,7 +233,6 @@ public class TerasologyEngine implements GameEngine {
             cleanup();
             throw e;
         }
-
 
         double seconds = 0.001 * totalInitTime.elapsed(TimeUnit.MILLISECONDS);
         logger.info("Initialization completed in {}sec.", String.format("%.2f", seconds));
@@ -231,6 +257,9 @@ public class TerasologyEngine implements GameEngine {
         logger.info("OS: {}, arch: {}, version: {}", System.getProperty("os.name"), System.getProperty("os.arch"), System.getProperty("os.version"));
         logger.info("Max. Memory: {} MiB", Runtime.getRuntime().maxMemory() / ONE_MEBIBYTE);
         logger.info("Processors: {}", Runtime.getRuntime().availableProcessors());
+        if (NonNativeJVMDetector.JVM_ARCH_IS_NONNATIVE) {
+            logger.warn("Running on a 32-bit JVM on a 64-bit system. This may limit performance.");
+        }
     }
 
     /**
@@ -257,6 +286,7 @@ public class TerasologyEngine implements GameEngine {
      */
     private void postInitSubsystems() {
         for (EngineSubsystem subsystem : getSubsystems()) {
+            changeStatus(() -> "Post-Initialising " + subsystem.getName() + " subsystem");
             subsystem.postInitialise(rootContext);
         }
     }
@@ -276,7 +306,7 @@ public class TerasologyEngine implements GameEngine {
     private void initManagers() {
 
         changeStatus(TerasologyEngineStatus.INITIALIZING_MODULE_MANAGER);
-        ModuleManager moduleManager = new ModuleManagerImpl();
+        ModuleManager moduleManager = new ModuleManagerImpl(rootContext.get(Config.class), classesOnClasspathsToAddToEngine);
         rootContext.put(ModuleManager.class, moduleManager);
 
         changeStatus(TerasologyEngineStatus.INITIALIZING_LOWLEVEL_OBJECT_MANIPULATION);
@@ -295,8 +325,7 @@ public class TerasologyEngine implements GameEngine {
     }
 
     private void initAssets() {
-        DefaultBlockFamilyFactoryRegistry familyFactoryRegistry = new DefaultBlockFamilyFactoryRegistry();
-        rootContext.put(BlockFamilyFactoryRegistry.class, familyFactoryRegistry);
+
 
         // cast lambdas explicitly to avoid inconsistent compiler behavior wrt. type inference
         assetTypeManager.registerCoreAssetType(Prefab.class,
@@ -310,7 +339,7 @@ public class TerasologyEngine implements GameEngine {
         assetTypeManager.registerCoreAssetType(BlockFamilyDefinition.class,
                 (AssetFactory<BlockFamilyDefinition, BlockFamilyDefinitionData>) BlockFamilyDefinition::new, "blocks");
         assetTypeManager.registerCoreFormat(BlockFamilyDefinition.class,
-                new BlockFamilyDefinitionFormat(assetTypeManager.getAssetManager(), familyFactoryRegistry));
+                new BlockFamilyDefinitionFormat(assetTypeManager.getAssetManager()));
         assetTypeManager.registerCoreAssetType(UISkin.class,
                 (AssetFactory<UISkin, UISkinData>) UISkin::new, "skins");
         assetTypeManager.registerCoreAssetType(BehaviorTree.class,
@@ -389,53 +418,68 @@ public class TerasologyEngine implements GameEngine {
     private void mainLoop() {
         PerformanceMonitor.startActivity("Other");
         // MAIN GAME LOOP
-        while (!shutdownRequested) {
-            assetTypeManager.reloadChangedOnDisk();
-
-            processPendingState();
-
-            if (currentState == null) {
-                shutdown();
-                break;
-            }
-
-            Iterator<Float> updateCycles = timeSubsystem.getEngineTime().tick();
-
-            for (EngineSubsystem subsystem : allSubsystems) {
-                try (Activity ignored = PerformanceMonitor.startActivity(subsystem.getName() + " PreUpdate")) {
-                    subsystem.preUpdate(currentState, timeSubsystem.getEngineTime().getRealDelta());
-                }
-            }
-
-            while (updateCycles.hasNext()) {
-                float updateDelta = updateCycles.next(); // gameTime gets updated here!
-                try (Activity ignored = PerformanceMonitor.startActivity("Main Update")) {
-                    currentState.update(updateDelta);
-                }
-            }
-
-            // Waiting processes are set by modules via GameThread.a/synch() methods.
-            GameThread.processWaitingProcesses();
-
-            for (EngineSubsystem subsystem : getSubsystems()) {
-                try (Activity ignored = PerformanceMonitor.startActivity(subsystem.getName() + " Subsystem postUpdate")) {
-                    subsystem.postUpdate(currentState, timeSubsystem.getEngineTime().getRealDelta());
-                }
-            }
-            assetTypeManager.disposedUnusedAssets();
-
-            PerformanceMonitor.rollCycle();
-            PerformanceMonitor.startActivity("Other");
+        while (tick()) {
+            /* do nothing */
         }
         PerformanceMonitor.endActivity();
     }
 
-    private void cleanup() {
+    /**
+     * Runs a single "tick" of the engine
+     * @return true if the loop requesting a tick should continue running
+     */
+    public boolean tick() {
+        if (shutdownRequested) {
+            return false;
+        }
+
+        assetTypeManager.reloadChangedOnDisk();
+
+        processPendingState();
+
+        if (currentState == null) {
+            shutdown();
+            return false;
+        }
+
+        Iterator<Float> updateCycles = timeSubsystem.getEngineTime().tick();
+        CoreRegistry.setContext(currentState.getContext());
+        rootContext.get(NetworkSystem.class).setContext(currentState.getContext());
+
+        for (EngineSubsystem subsystem : allSubsystems) {
+            try (Activity ignored = PerformanceMonitor.startActivity(subsystem.getName() + " PreUpdate")) {
+                subsystem.preUpdate(currentState, timeSubsystem.getEngineTime().getRealDelta());
+            }
+        }
+
+        while (updateCycles.hasNext()) {
+            float updateDelta = updateCycles.next(); // gameTime gets updated here!
+            try (Activity ignored = PerformanceMonitor.startActivity("Main Update")) {
+                currentState.update(updateDelta);
+            }
+        }
+
+        // Waiting processes are set by modules via GameThread.a/synch() methods.
+        GameThread.processWaitingProcesses();
+
+        for (EngineSubsystem subsystem : getSubsystems()) {
+            try (Activity ignored = PerformanceMonitor.startActivity(subsystem.getName() + " Subsystem postUpdate")) {
+                subsystem.postUpdate(currentState, timeSubsystem.getEngineTime().getRealDelta());
+            }
+        }
+        assetTypeManager.disposedUnusedAssets();
+
+        PerformanceMonitor.rollCycle();
+        PerformanceMonitor.startActivity("Other");
+        return true;
+    }
+
+    public void cleanup() {
         logger.info("Shutting down Terasology...");
         changeStatus(StandardGameStatus.SHUTTING_DOWN);
 
         if (currentState != null) {
-            currentState.dispose();
+            currentState.dispose(true);
             currentState = null;
         }
 

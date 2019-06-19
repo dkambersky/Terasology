@@ -21,7 +21,9 @@ import org.terasology.config.ServerInfo;
 import org.terasology.engine.TerasologyConstants;
 import org.terasology.rendering.nui.CoreScreenLayer;
 import org.terasology.rendering.nui.databinding.ReadOnlyBinding;
+import org.terasology.rendering.nui.widgets.ActivateEventListener;
 import org.terasology.rendering.nui.widgets.UIButton;
+import org.terasology.rendering.nui.widgets.UILabel;
 import org.terasology.rendering.nui.widgets.UIText;
 
 import java.util.function.Consumer;
@@ -39,6 +41,7 @@ public class AddServerPopup extends CoreScreenLayer {
     private UIButton okButton;
     private UIButton cancelButton;
     private ServerInfo serverInfo;
+    private UILabel tip;
 
     private Consumer<ServerInfo> successFunc;
 
@@ -50,13 +53,14 @@ public class AddServerPopup extends CoreScreenLayer {
         portText = find("port", UIText.class);
         okButton = find("ok", UIButton.class);
         cancelButton = find("cancel", UIButton.class);
+        tip = find("tip", UILabel.class);
 
         okButton.subscribe(button -> {
 
             String name = nameText.getText();
             String owner = ownerText.getText();
             String address = addressText.getText();
-            Integer portBoxed = Ints.tryParse(portText.getText());
+            Integer portBoxed = Ints.tryParse(portText.getText().trim());
             int port = (portBoxed != null) ? portBoxed : TerasologyConstants.DEFAULT_PORT;
 
             if (serverInfo == null) {
@@ -83,7 +87,7 @@ public class AddServerPopup extends CoreScreenLayer {
             public Boolean get() {
                 return !nameText.getText().isEmpty()
                         && !addressText.getText().isEmpty()
-                        && Ints.tryParse(portText.getText()) != null;
+                        && Ints.tryParse(portText.getText().trim()) != null;
             }
         });
 
@@ -149,5 +153,17 @@ public class AddServerPopup extends CoreScreenLayer {
      */
     public void onSuccess(Consumer<ServerInfo> success) {
         this.successFunc = success;
+    }
+
+    /**
+     * And a listen to the cancel button.
+     * @param listener The listener added on the cancel button
+     */
+    public void onCancel(ActivateEventListener listener) {
+        cancelButton.subscribe(listener);
+    }
+
+    public void removeTip() {
+        tip.setVisible(false);
     }
 }

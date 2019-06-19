@@ -32,14 +32,11 @@ import org.terasology.math.geom.SpiralIterable;
 import org.terasology.math.geom.Vector2i;
 import org.terasology.math.geom.Vector3f;
 import org.terasology.math.geom.Vector3i;
-import org.terasology.network.ClientComponent;
-import org.terasology.network.ColorComponent;
-import org.terasology.physics.shapes.BoxShapeComponent;
-import org.terasology.physics.shapes.CapsuleShapeComponent;
-import org.terasology.physics.shapes.CylinderShapeComponent;
-import org.terasology.physics.shapes.HullShapeComponent;
-import org.terasology.physics.shapes.SphereShapeComponent;
-import org.terasology.rendering.logic.MeshComponent;
+import org.terasology.physics.components.shapes.BoxShapeComponent;
+import org.terasology.physics.components.shapes.CapsuleShapeComponent;
+import org.terasology.physics.components.shapes.CylinderShapeComponent;
+import org.terasology.physics.components.shapes.HullShapeComponent;
+import org.terasology.physics.components.shapes.SphereShapeComponent;
 import org.terasology.world.WorldProvider;
 
 import java.util.Optional;
@@ -69,11 +66,8 @@ public class PlayerFactory {
 
         EntityBuilder builder = entityManager.newBuilder("engine:player");
 
-        float extraSpace = 0.5f;  // spawn a little bit above the ground
-        float entityHeight = getHeightOf(builder) + extraSpace;
-
         LocationComponent location = controller.getComponent(LocationComponent.class);
-        Vector3f spawnPosition = findSpawnPos(location.getWorldPosition(), entityHeight).get(); // TODO: Handle Optional being empty
+        Vector3f spawnPosition = findSpawnPositionFromLocationComponent(location);
         location.setWorldPosition(spawnPosition);
         controller.saveComponent(location);
 
@@ -81,14 +75,6 @@ public class PlayerFactory {
 
         builder.getComponent(LocationComponent.class).setWorldPosition(spawnPosition);
         builder.setOwner(controller);
-
-        ClientComponent clientComp = controller.getComponent(ClientComponent.class);
-        if (clientComp != null) {
-            ColorComponent colorComp = clientComp.clientInfo.getComponent(ColorComponent.class);
-
-            MeshComponent meshComp = builder.getComponent(MeshComponent.class);
-            meshComp.color = colorComp.color;
-        }
 
         CharacterComponent playerComponent = builder.getComponent(CharacterComponent.class);
         playerComponent.controller = controller;
@@ -98,6 +84,13 @@ public class PlayerFactory {
         Location.attachChild(player, controller, new Vector3f(), new Quat4f(0, 0, 0, 1));
 
         return player;
+    }
+
+    public Vector3f findSpawnPositionFromLocationComponent(LocationComponent locationComponent) {
+        EntityBuilder builder = entityManager.newBuilder("engine:player");
+        float extraSpace = 0.5f;  // spawn a little bit above the ground
+        float entityHeight = getHeightOf(builder) + extraSpace;
+        return findSpawnPos(locationComponent.getWorldPosition(), entityHeight).get(); // TODO: Handle Optional being empty
     }
 
     private float getHeightOf(ComponentContainer prefab) {

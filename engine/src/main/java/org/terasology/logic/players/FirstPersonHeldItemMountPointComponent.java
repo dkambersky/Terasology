@@ -40,15 +40,26 @@ public class FirstPersonHeldItemMountPointComponent implements Component, Contro
 
     // TODO: @In
     private final OpenVRProvider vrProvider = OpenVRProvider.getInstance();
+    private boolean trackingDataReceived;
+
 
     // The hand/tool models seem to have an origin other than the pivot point. This is a best-effort correction,
     // in the form of a 4x4 homogeneous transformation matrix
     private Matrix4f toolAdjustmentMatrix = new Matrix4f(
             1.0f, 0.0f, 0.0f, 0.0f,
-            0.0f, (float) Math.cos(230.* TeraMath.DEG_TO_RAD), (float) Math.sin(230. * TeraMath.DEG_TO_RAD), 0.0f,
+            0.0f, (float) Math.cos(230. * TeraMath.DEG_TO_RAD), (float) Math.sin(230. * TeraMath.DEG_TO_RAD), 0.0f,
             0.0f, (float) -Math.sin(230. * TeraMath.DEG_TO_RAD), (float) Math.cos(230. * TeraMath.DEG_TO_RAD), 0.0f,
             0.0f, -0.05f, -0.2f, 1.0f
     );
+
+    /**
+     * Sometimes, a tracking system (i.e. for room-scale VR) provides a pose for this mount point. In this
+     * case, special handling is necessary, and this accessor gives a way to check.
+     * @return true if this class is receiving tracking updates, false if not.
+     */
+    public boolean isTracked() {
+        return trackingDataReceived;
+    }
 
     /**
      * If possible, make this object listen for controller pose updates. If the vrProvider is not active (i.e. no headset
@@ -84,6 +95,7 @@ public class FirstPersonHeldItemMountPointComponent implements Component, Contro
         if (handIndex != 0) {
             return;
         }
+        trackingDataReceived = true;
         Matrix4f adjustedPose = pose.mul(toolAdjustmentMatrix);
         translate = new Vector3f(adjustedPose.m30(), adjustedPose.m31(), adjustedPose.m32());
         org.joml.Vector4f jomlQuaternion = org.terasology.rendering.openvrprovider.OpenVRUtil.convertToQuaternion(adjustedPose);

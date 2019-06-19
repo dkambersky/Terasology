@@ -84,6 +84,10 @@ public class UIScrollbar extends CoreWidget {
         }
     };
 
+    public InteractionListener getHandleListener() {
+        return handleListener;
+    }
+
     private InteractionListener sliderListener = new BaseInteractionListener() {
         @Override
         public boolean onMouseClick(NUIMouseClickEvent event) {
@@ -122,6 +126,10 @@ public class UIScrollbar extends CoreWidget {
             dragging = false;
         }
     };
+
+    public InteractionListener getSliderListener() {
+        return sliderListener;
+    }
 
     public UIScrollbar() {
         this(true);
@@ -218,7 +226,7 @@ public class UIScrollbar extends CoreWidget {
      * @return The max value scrollable to.
      */
     public int getRange() {
-        return range.get();
+        return Math.max(0, range.get());
     }
 
     /**

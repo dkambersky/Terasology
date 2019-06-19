@@ -67,6 +67,13 @@ public class RelativeLayout extends CoreLayout<RelativeLayoutHint> {
         cachedRegions.remove(info);
     }
 
+    @Override
+    public void removeAllWidgets() {
+        contentLookup.clear();
+        contents.clear();
+        cachedRegions.clear();
+    }
+
     public void addWidget(UIWidget widget, HorizontalHint horizontal, VerticalHint vertical) {
         addWidget(widget, new RelativeLayoutHint(horizontal, vertical));
     }
@@ -183,9 +190,13 @@ public class RelativeLayout extends CoreLayout<RelativeLayoutHint> {
             }
             WidgetInfo target = contentLookup.get(id);
             if (target != null) {
-                Rect2i region = getRegion(target, canvas);
-                loopDetectionId = "";
-                return region;
+                try {
+                    Rect2i region = getRegion(target, canvas);
+                    loopDetectionId = "";
+                    return region;
+                } catch (StackOverflowError e) {
+                    logger.error("Stack Overflow detected resolving layout of element {}, unable to render", loopDetectionId);
+                }
             }
         }
         loopDetectionId = "";

@@ -1,6 +1,6 @@
 {
     "type": "addServerPopup",
-    "skin": "popup",
+    "skin": "graypopup",
     "contents": {
         "type": "relativeLayout",
         "contents": [
@@ -96,7 +96,8 @@
                         },
                         {
                             "type": "UILabel",
-                            "text": "${engine:menu#add-server-tip}"
+                            "text": "${engine:menu#add-server-tip}",
+                            "id": "tip"
                         },
                         {
                             "type": "UISpace",

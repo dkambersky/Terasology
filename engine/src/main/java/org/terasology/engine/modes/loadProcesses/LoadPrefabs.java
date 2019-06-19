@@ -23,8 +23,6 @@ import org.terasology.entitySystem.prefab.Prefab;
 
 import java.util.Iterator;
 
-/**
- */
 public class LoadPrefabs extends StepBasedLoadProcess {
     private final AssetManager assetManager;
     private Iterator<ResourceUrn> prefabs;
@@ -35,7 +33,7 @@ public class LoadPrefabs extends StepBasedLoadProcess {
 
     @Override
     public String getMessage() {
-        return "Loading Prefabs...";
+        return "${engine:menu#loading-prefabs}";
     }
 
     @Override

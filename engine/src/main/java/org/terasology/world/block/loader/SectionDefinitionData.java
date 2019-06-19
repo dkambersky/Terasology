@@ -63,13 +63,14 @@ public class SectionDefinitionData {
 
     private float mass = 10f;
     private boolean debrisOnDestroy = true;
+    private float friction = 0.5f;
+    private float restitution = 0.0f;
 
     private EntityData entity = new EntityData();
     private InventoryData inventory = new InventoryData();
 
     private BlockShape shape;
     private boolean water;
-    private boolean lava;
     private boolean grass;
     private boolean ice;
 
@@ -111,6 +112,8 @@ public class SectionDefinitionData {
 
         this.mass = other.mass;
         this.debrisOnDestroy = other.debrisOnDestroy;
+        this.friction = other.friction;
+        this.restitution = other.restitution;
 
         this.entity = new EntityData(other.entity);
         this.inventory = new InventoryData(other.inventory);
@@ -118,7 +121,6 @@ public class SectionDefinitionData {
         this.shape = other.shape;
 
         this.water = other.water;
-        this.lava = other.lava;
         this.grass = other.grass;
         this.ice = other.ice;
     }
@@ -305,6 +307,22 @@ public class SectionDefinitionData {
         this.debrisOnDestroy = debrisOnDestroy;
     }
 
+    public float getFriction() {
+        return friction;
+    }
+
+    public void setFriction(float friction) {
+        this.friction = friction;
+    }
+
+    public float getRestitution() {
+        return restitution;
+    }
+
+    public void setRestitution(float restitution) {
+        this.restitution = restitution;
+    }
+
     public EntityData getEntity() {
         return entity;
     }
@@ -335,14 +353,6 @@ public class SectionDefinitionData {
 
     public void setWater(boolean water) {
         this.water = water;
-    }
-
-    public boolean isLava() {
-        return lava;
-    }
-
-    public void setLava(boolean lava) {
-        this.lava = lava;
     }
 
     public boolean isGrass() {

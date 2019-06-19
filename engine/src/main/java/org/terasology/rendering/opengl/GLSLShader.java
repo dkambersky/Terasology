@@ -30,7 +30,6 @@ import org.terasology.assets.AssetType;
 import org.terasology.assets.ResourceUrn;
 import org.terasology.config.Config;
 import org.terasology.config.RenderingConfig;
-import org.terasology.config.RenderingDebugConfig;
 import org.terasology.engine.GameThread;
 import org.terasology.engine.TerasologyConstants;
 import org.terasology.engine.paths.PathManager;
@@ -40,7 +39,6 @@ import org.terasology.rendering.assets.shader.ShaderData;
 import org.terasology.rendering.assets.shader.ShaderParameterMetadata;
 import org.terasology.rendering.assets.shader.ShaderProgramFeature;
 import org.terasology.rendering.primitives.ChunkVertexFlag;
-import org.terasology.rendering.shader.ShaderParametersSSAO;
 import org.terasology.rendering.world.WorldRenderer;
 import org.terasology.world.block.tiles.WorldAtlas;
 
@@ -54,6 +52,9 @@ import java.util.Collections;
 import java.util.EnumSet;
 import java.util.Map;
 import java.util.Set;
+
+import static org.terasology.rendering.dag.nodes.AmbientOcclusionNode.SSAO_KERNEL_ELEMENTS;
+import static org.terasology.rendering.dag.nodes.AmbientOcclusionNode.SSAO_NOISE_SIZE;
 
 /**
  * GLSL Shader Program Instance class.
@@ -72,15 +73,15 @@ public class GLSLShader extends Shader {
 
     static {
         try (
-                InputStream vertStream = GLSLShader.class.getClassLoader().getResourceAsStream("org/terasology/include/globalFunctionsVertIncl.glsl");
-                InputStream fragStream = GLSLShader.class.getClassLoader().getResourceAsStream("org/terasology/include/globalFunctionsFragIncl.glsl");
-                InputStream uniformsStream = GLSLShader.class.getClassLoader().getResourceAsStream("org/terasology/include/globalUniformsIncl.glsl");
-                InputStream definesStream = GLSLShader.class.getClassLoader().getResourceAsStream("org/terasology/include/globalDefinesIncl.glsl")
+                InputStreamReader vertStream = getInputStreamReaderFromResource("org/terasology/include/globalFunctionsVertIncl.glsl");
+                InputStreamReader fragStream = getInputStreamReaderFromResource("org/terasology/include/globalFunctionsFragIncl.glsl");
+                InputStreamReader uniformsStream = getInputStreamReaderFromResource("org/terasology/include/globalUniformsIncl.glsl");
+                InputStreamReader definesStream = getInputStreamReaderFromResource("org/terasology/include/globalDefinesIncl.glsl")
         ) {
-            includedFunctionsVertex = CharStreams.toString(new InputStreamReader(vertStream, Charsets.UTF_8));
-            includedFunctionsFragment = CharStreams.toString(new InputStreamReader(fragStream, Charsets.UTF_8));
-            includedDefines = CharStreams.toString(new InputStreamReader(definesStream, Charsets.UTF_8));
-            includedUniforms = CharStreams.toString(new InputStreamReader(uniformsStream, Charsets.UTF_8));
+            includedFunctionsVertex = CharStreams.toString(vertStream);
+            includedFunctionsFragment = CharStreams.toString(fragStream);
+            includedDefines = CharStreams.toString(uniformsStream);
+            includedUniforms = CharStreams.toString(definesStream);
         } catch (IOException e) {
             logger.error("Failed to load Include shader resources");
         }
@@ -100,6 +101,11 @@ public class GLSLShader extends Shader {
         disposalAction = new DisposalAction(urn);
         getDisposalHook().setDisposeAction(disposalAction);
         reload(data);
+    }
+
+    private static InputStreamReader getInputStreamReaderFromResource(String resource) {
+        InputStream resourceStream = GLSLShader.class.getClassLoader().getResourceAsStream(resource);
+        return new InputStreamReader(resourceStream, Charsets.UTF_8);
     }
 
     // made package-private after CheckStyle suggestion
@@ -150,8 +156,8 @@ public class GLSLShader extends Shader {
         preProcessorPreamble += "#define BLOCK_LIGHT_SUN_POW " + WorldRenderer.BLOCK_LIGHT_SUN_POW + "\n";
         preProcessorPreamble += "#define BLOCK_INTENSITY_FACTOR " + WorldRenderer.BLOCK_INTENSITY_FACTOR + "\n";
         preProcessorPreamble += "#define SHADOW_MAP_RESOLUTION " + (float) renderConfig.getShadowMapResolution() + "\n";
-        preProcessorPreamble += "#define SSAO_KERNEL_ELEMENTS " + ShaderParametersSSAO.SSAO_KERNEL_ELEMENTS + "\n";
-        preProcessorPreamble += "#define SSAO_NOISE_SIZE " + ShaderParametersSSAO.SSAO_NOISE_SIZE + "\n";
+        preProcessorPreamble += "#define SSAO_KERNEL_ELEMENTS " + SSAO_KERNEL_ELEMENTS + "\n";
+        preProcessorPreamble += "#define SSAO_NOISE_SIZE " + SSAO_NOISE_SIZE + "\n";
         // TODO: This shouldn't be hardcoded
         preProcessorPreamble += "#define TEXTURE_OFFSET_EFFECTS " + 0.0625f + "\n";
 
@@ -217,10 +223,6 @@ public class GLSLShader extends Shader {
         // TODO A 3D wizard should take a look at this. Configurable for the moment to make better comparisons possible.
         if (renderConfig.isClampLighting()) {
             builder.append("#define CLAMP_LIGHTING \n");
-        }
-
-        for (RenderingDebugConfig.DebugRenderingStage stage : RenderingDebugConfig.DebugRenderingStage.values()) {
-            builder.append("#define ").append(stage.getDefineName()).append(" int(").append(stage.getIndex()).append(") \n");
         }
 
         for (ChunkVertexFlag vertexFlag : ChunkVertexFlag.values()) {
@@ -374,7 +376,11 @@ public class GLSLShader extends Shader {
                     parameters.put(metadata.getName(), metadata);
                 }
                 updateAvailableFeatures();
-                recompile();
+                try {
+                    recompile();
+                } catch (RuntimeException e) {
+                    logger.warn(e.getMessage());
+                }
             });
         } catch (InterruptedException e) {
             logger.error("Failed to reload {}", getUrn(), e);

@@ -15,33 +15,39 @@
  */
 package org.terasology.rendering.dag.nodes;
 
-
 import org.lwjgl.opengl.GL11;
 import org.terasology.assets.ResourceUrn;
 import org.terasology.config.Config;
+import org.terasology.config.RenderingConfig;
 import org.terasology.config.RenderingDebugConfig;
+import org.terasology.context.Context;
 import org.terasology.math.geom.Vector3f;
 import org.terasology.monitoring.PerformanceMonitor;
-import org.terasology.registry.In;
 import org.terasology.rendering.AABBRenderer;
 import org.terasology.rendering.assets.material.Material;
-import org.terasology.rendering.cameras.Camera;
+import org.terasology.rendering.cameras.SubmersibleCamera;
 import org.terasology.rendering.dag.AbstractNode;
+import org.terasology.rendering.dag.StateChange;
 import org.terasology.rendering.dag.WireframeCapable;
 import org.terasology.rendering.dag.WireframeTrigger;
+import org.terasology.rendering.dag.stateChanges.BindFbo;
+import org.terasology.rendering.dag.stateChanges.EnableFaceCulling;
 import org.terasology.rendering.dag.stateChanges.EnableMaterial;
 import org.terasology.rendering.dag.stateChanges.LookThrough;
-import org.terasology.rendering.dag.stateChanges.SetViewportToSizeOf;
+import org.terasology.rendering.dag.stateChanges.SetInputTexture2D;
 import org.terasology.rendering.dag.stateChanges.SetWireframe;
-import org.terasology.rendering.opengl.FBO;
+import org.terasology.rendering.nui.properties.Range;
 import org.terasology.rendering.opengl.fbms.DisplayResolutionDependentFBOs;
 import org.terasology.rendering.primitives.ChunkMesh;
 import org.terasology.rendering.world.RenderQueuesHelper;
 import org.terasology.rendering.world.WorldRenderer;
+import org.terasology.world.WorldProvider;
 import org.terasology.world.chunks.ChunkConstants;
 import org.terasology.world.chunks.RenderableChunk;
 
-import static org.terasology.rendering.opengl.fbms.DisplayResolutionDependentFBOs.READONLY_GBUFFER;
+import java.beans.PropertyChangeEvent;
+import java.beans.PropertyChangeListener;
+
 import static org.terasology.rendering.primitives.ChunkMesh.RenderPhase.OPAQUE;
 
 /**
@@ -49,48 +55,87 @@ import static org.terasology.rendering.primitives.ChunkMesh.RenderPhase.OPAQUE;
  *
  * In a typical world this is the majority of the world's landscape.
  */
-public class OpaqueBlocksNode extends AbstractNode implements WireframeCapable {
-    private static final ResourceUrn CHUNK_SHADER = new ResourceUrn("engine:prog.chunk");
+public class OpaqueBlocksNode extends AbstractNode implements WireframeCapable, PropertyChangeListener {
+    private static final ResourceUrn CHUNK_MATERIAL_URN = new ResourceUrn("engine:prog.chunk");
 
-    @In
     private WorldRenderer worldRenderer;
-
-    @In
-    private Config config;
-
-    @In
     private RenderQueuesHelper renderQueues;
+    private RenderingConfig renderingConfig;
+    private WorldProvider worldProvider;
 
-    @In
-    private DisplayResolutionDependentFBOs displayResolutionDependentFBOs;
-
-    private Camera playerCamera;
-    private Material chunkShader;
+    private Material chunkMaterial;
     private SetWireframe wireframeStateChange;
+    private EnableFaceCulling faceCullingStateChange;
     private RenderingDebugConfig renderingDebugConfig;
-    private FBO sceneOpaqueFbo;
 
-    /**
-     * Initialises this node. -Must- be called once after instantiation.
-     */
-    @Override
-    public void initialise() {
+    private SubmersibleCamera activeCamera;
+
+    private boolean normalMappingIsEnabled;
+    private boolean parallaxMappingIsEnabled;
+
+    private StateChange setTerrainNormalsInputTexture;
+    private StateChange setTerrainHeightInputTexture;
+
+    @SuppressWarnings("FieldCanBeLocal")
+    @Range(min = 0.0f, max = 0.5f)
+    private float parallaxBias = 0.25f;
+    @SuppressWarnings("FieldCanBeLocal")
+    @Range(min = 0.0f, max = 0.50f)
+    private float parallaxScale = 0.5f;
+
+    public OpaqueBlocksNode(String nodeUri, Context context) {
+        super(nodeUri, context);
+
+        renderQueues = context.get(RenderQueuesHelper.class);
+        worldProvider = context.get(WorldProvider.class);
+
+        worldRenderer = context.get(WorldRenderer.class);
+        activeCamera = worldRenderer.getActiveCamera();
+        addDesiredStateChange(new LookThrough(activeCamera));
+
+        // IF wireframe is enabled the WireframeTrigger will remove the face culling state change
+        // from the set of desired state changes.
+        // The alternative would have been to check here first if wireframe mode is enabled and *if not*
+        // add the face culling state change. However, if wireframe *is* enabled, the WireframeTrigger
+        // would attempt to remove the face culling state even though it isn't there, relying on the
+        // quiet behaviour of Set.remove(nonExistentItem). We therefore favored the first solution.
+        faceCullingStateChange = new EnableFaceCulling();
+        addDesiredStateChange(faceCullingStateChange);
+
         wireframeStateChange = new SetWireframe(true);
-        renderingDebugConfig = config.getRendering().getDebug();
+        renderingDebugConfig = context.get(Config.class).getRendering().getDebug();
         new WireframeTrigger(renderingDebugConfig, this);
 
-        playerCamera = worldRenderer.getActiveCamera();
-        addDesiredStateChange(new LookThrough(playerCamera));
+        addDesiredStateChange(new BindFbo(context.get(DisplayResolutionDependentFBOs.class).getGBufferPair().getLastUpdatedFbo()));
 
-        addDesiredStateChange(new SetViewportToSizeOf(READONLY_GBUFFER, displayResolutionDependentFBOs));
-        sceneOpaqueFbo = displayResolutionDependentFBOs.get(READONLY_GBUFFER);
+        addDesiredStateChange(new EnableMaterial(CHUNK_MATERIAL_URN));
 
-        addDesiredStateChange(new EnableMaterial(CHUNK_SHADER.toString()));
-        chunkShader = getMaterial(CHUNK_SHADER);
+        chunkMaterial = getMaterial(CHUNK_MATERIAL_URN);
+
+        renderingConfig = context.get(Config.class).getRendering();
+        normalMappingIsEnabled = renderingConfig.isNormalMapping();
+        renderingConfig.subscribe(RenderingConfig.NORMAL_MAPPING, this);
+        parallaxMappingIsEnabled = renderingConfig.isParallaxMapping();
+        renderingConfig.subscribe(RenderingConfig.PARALLAX_MAPPING, this);
+
+        int textureSlot = 0;
+        addDesiredStateChange(new SetInputTexture2D(textureSlot++, "engine:terrain", CHUNK_MATERIAL_URN, "textureAtlas"));
+        addDesiredStateChange(new SetInputTexture2D(textureSlot++, "engine:effects", CHUNK_MATERIAL_URN, "textureEffects"));
+        setTerrainNormalsInputTexture = new SetInputTexture2D(textureSlot++, "engine:terrainNormal", CHUNK_MATERIAL_URN, "textureAtlasNormal");
+        setTerrainHeightInputTexture = new SetInputTexture2D(textureSlot, "engine:terrainHeight", CHUNK_MATERIAL_URN, "textureAtlasHeight");
+
+        if (normalMappingIsEnabled) {
+            addDesiredStateChange(setTerrainNormalsInputTexture);
+        }
+
+        if (parallaxMappingIsEnabled) {
+            addDesiredStateChange(setTerrainHeightInputTexture);
+        }
     }
 
     public void enableWireframe() {
         if (!getDesiredStateChanges().contains(wireframeStateChange)) {
+            removeDesiredStateChange(faceCullingStateChange);
             addDesiredStateChange(wireframeStateChange);
             worldRenderer.requestTaskListRefresh();
         }
@@ -98,6 +143,7 @@ public class OpaqueBlocksNode extends AbstractNode implements WireframeCapable {
 
     public void disableWireframe() {
         if (getDesiredStateChanges().contains(wireframeStateChange)) {
+            addDesiredStateChange(faceCullingStateChange);
             removeDesiredStateChange(wireframeStateChange);
             worldRenderer.requestTaskListRefresh();
         }
@@ -120,15 +166,26 @@ public class OpaqueBlocksNode extends AbstractNode implements WireframeCapable {
      */
     @Override
     public void process() {
-        PerformanceMonitor.startActivity("rendering/opaqueChunks");
+        PerformanceMonitor.startActivity("rendering/" + getUri());
 
-        final Vector3f cameraPosition = playerCamera.getPosition();
+        // Common Shader Parameters
+
+        chunkMaterial.setFloat("time", worldProvider.getTime().getDays(), true);
+
+        // Specific Shader Parameters
+
+        chunkMaterial.setFloat("clip", 0.0f, true);
+
+        if (parallaxMappingIsEnabled) {
+            chunkMaterial.setFloat4("parallaxProperties", parallaxBias, parallaxScale, 0.0f, 0.0f, true);
+        }
+
+        // Actual Node Processing
+
+        final Vector3f cameraPosition = activeCamera.getPosition();
 
         int numberOfRenderedTriangles = 0;
         int numberOfChunksThatAreNotReadyYet = 0;
-
-        sceneOpaqueFbo.bind(); // TODO: remove when we can bind this via a StateChange
-        chunkShader.setFloat("clip", 0.0f, true);
 
         while (renderQueues.chunksOpaque.size() > 0) {
             RenderableChunk chunk = renderQueues.chunksOpaque.poll();
@@ -137,7 +194,7 @@ public class OpaqueBlocksNode extends AbstractNode implements WireframeCapable {
                 final ChunkMesh chunkMesh = chunk.getMesh();
                 final Vector3f chunkPosition = chunk.getPosition().toVector3f();
 
-                chunkMesh.updateMaterial(chunkShader, chunkPosition, chunk.isAnimated());
+                chunkMesh.updateMaterial(chunkMaterial, chunkPosition, chunk.isAnimated());
                 numberOfRenderedTriangles += chunkMesh.render(OPAQUE, chunkPosition, cameraPosition);
 
                 if (renderingDebugConfig.isRenderChunkBoundingBoxes()) {
@@ -168,5 +225,34 @@ public class OpaqueBlocksNode extends AbstractNode implements WireframeCapable {
         new AABBRenderer(chunk.getAABB()).renderLocally(1f);
 
         GL11.glPopMatrix(); // Resets the matrix stack after the rendering of a chunk.
+    }
+
+    @Override
+    public void propertyChange(PropertyChangeEvent event) {
+        String propertyName = event.getPropertyName();
+
+        switch (propertyName) {
+            case RenderingConfig.NORMAL_MAPPING:
+                normalMappingIsEnabled = renderingConfig.isNormalMapping();
+                if (normalMappingIsEnabled) {
+                    addDesiredStateChange(setTerrainNormalsInputTexture);
+                } else {
+                    removeDesiredStateChange(setTerrainNormalsInputTexture);
+                }
+                break;
+
+            case RenderingConfig.PARALLAX_MAPPING:
+                parallaxMappingIsEnabled = renderingConfig.isParallaxMapping();
+                if (parallaxMappingIsEnabled) {
+                    addDesiredStateChange(setTerrainHeightInputTexture);
+                } else {
+                    removeDesiredStateChange(setTerrainHeightInputTexture);
+                }
+                break;
+
+            // default: no other cases are possible - see subscribe operations in initialize().
+        }
+
+        worldRenderer.requestTaskListRefresh();
     }
 }

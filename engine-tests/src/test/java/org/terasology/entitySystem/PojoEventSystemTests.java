@@ -23,8 +23,10 @@ import org.terasology.engine.SimpleUri;
 import org.terasology.entitySystem.entity.EntityRef;
 import org.terasology.entitySystem.entity.internal.PojoEntityManager;
 import org.terasology.entitySystem.event.AbstractConsumableEvent;
+import org.terasology.entitySystem.event.Event;
 import org.terasology.entitySystem.event.EventPriority;
 import org.terasology.entitySystem.event.ReceiveEvent;
+import org.terasology.entitySystem.event.internal.EventReceiver;
 import org.terasology.entitySystem.event.internal.EventSystemImpl;
 import org.terasology.entitySystem.metadata.ComponentLibrary;
 import org.terasology.entitySystem.metadata.EntitySystemLibrary;
@@ -35,6 +37,8 @@ import org.terasology.entitySystem.systems.BaseComponentSystem;
 import org.terasology.network.NetworkMode;
 import org.terasology.network.NetworkSystem;
 import org.terasology.persistence.typeHandling.TypeSerializationLibrary;
+import org.terasology.recording.EventCatcher;
+import org.terasology.recording.RecordAndReplayCurrentStatus;
 import org.terasology.reflection.copy.CopyStrategyLibrary;
 import org.terasology.reflection.reflect.ReflectFactory;
 import org.terasology.reflection.reflect.ReflectionReflectFactory;
@@ -71,7 +75,9 @@ public class PojoEventSystemTests {
         entityManager.setPrefabManager(new PojoPrefabManager(context));
         NetworkSystem networkSystem = mock(NetworkSystem.class);
         when(networkSystem.getMode()).thenReturn(NetworkMode.NONE);
-        eventSystem = new EventSystemImpl(entitySystemLibrary.getEventLibrary(), networkSystem);
+        EventCatcher eventCatcher = new EventCatcher(null, null);
+        RecordAndReplayCurrentStatus recordAndReplayCurrentStatus = new RecordAndReplayCurrentStatus();
+        eventSystem = new EventSystemImpl(entitySystemLibrary.getEventLibrary(), networkSystem, eventCatcher, recordAndReplayCurrentStatus);
         entityManager.setEventSystem(eventSystem);
         entity = entityManager.create();
     }
@@ -197,6 +203,19 @@ public class PojoEventSystemTests {
         assertEquals(1, handler.unfilteredEvents.size());
     }
 
+    @Test
+    public void testEventReceiverRegistration() {
+        TestEventReceiver receiver = new TestEventReceiver();
+        eventSystem.registerEventReceiver(receiver, TestEvent.class);
+
+        entity.send(new TestEvent());
+        assertEquals(1, receiver.eventList.size());
+
+        eventSystem.unregisterEventReceiver(receiver, TestEvent.class);
+        entity.send(new TestEvent());
+        assertEquals(1, receiver.eventList.size());
+    }
+
     private static class TestEvent extends AbstractConsumableEvent {
 
     }
@@ -318,5 +337,13 @@ public class PojoEventSystemTests {
         }
     }
 
+    public static class TestEventReceiver implements EventReceiver<TestEvent> {
+        List<Event> eventList = Lists.newArrayList();
+
+        @Override
+        public void onEvent(TestEvent event, EntityRef entity) {
+            eventList.add(event);
+        }
+    }
 
 }
